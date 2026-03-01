@@ -57,7 +57,7 @@ enum WithdrawalStatus {
 }
 
 ///////////////////////////////////////////////////////
-// 🔔 NOTIFICATION SYSTEM (RESTORED CLEANLY)
+// 🔔 NOTIFICATIONS
 ///////////////////////////////////////////////////////
 
 enum NotificationType {
@@ -65,6 +65,46 @@ enum NotificationType {
   PAYMENT_UPDATE
   SYSTEM_ALERT
   GENERAL
+}
+
+///////////////////////////////////////////////////////
+// 🎫 TICKET SYSTEM
+///////////////////////////////////////////////////////
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TicketCategory {
+  PAYMENT_ISSUE
+  DOCUMENT_REJECTION
+  TECHNICAL_GLITCH
+  GENERAL_QUERY
+}
+
+///////////////////////////////////////////////////////
+// 🧾 AUDIT SYSTEM
+///////////////////////////////////////////////////////
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  STATUS_CHANGE
+  LOGIN
+  LOGOUT
+  PAYMENT
+  ACCESS
 }
 
 ///////////////////////////////////////////////////////
@@ -78,7 +118,6 @@ model User {
   role        UserRole @default(CUSTOMER)
   isActive    Boolean  @default(true)
 
-  // 🌍 Geo + Assignment Info
   state     String?
   district  String?
   latitude  Float?
@@ -86,11 +125,9 @@ model User {
 
   wallet Wallet?
 
-  // Applications
   applications Application[] @relation("CustomerApplications")
   assignedApps Application[] @relation("AgentApplications")
 
-  // Financial
   transactions Transaction[]
 
   escrowAsCustomer EscrowHolding[] @relation("EscrowCustomer")
@@ -98,11 +135,17 @@ model User {
 
   withdrawals Withdrawal[]
 
-  // Performance
   agentMetrics AgentMetrics?
 
-  // Notifications
   notifications Notification[]
+
+  ticketsCreated  Ticket[] @relation("CreatedTickets")
+  ticketsAssigned Ticket[] @relation("AssignedTickets")
+
+  // ✅ FIXED: Missing opposite relation
+  ticketResponses TicketResponse[]
+
+  auditLogs AuditLog[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -160,10 +203,10 @@ model Application {
   escrow EscrowHolding?
 
   customerId String
-  customer   User   @relation("CustomerApplications", fields: [customerId], references: [id], onDelete: Cascade)
+  customer   User @relation("CustomerApplications", fields: [customerId], references: [id], onDelete: Cascade)
 
   agentId String?
-  agent   User?   @relation("AgentApplications", fields: [agentId], references: [id])
+  agent   User? @relation("AgentApplications", fields: [agentId], references: [id])
 
   assignmentDeadline DateTime?
   assignedAt         DateTime?
@@ -190,7 +233,6 @@ model Application {
   @@index([district])
   @@index([assignmentDeadline])
   @@index([paymentStatus])
-  @@index([riskScore])
 }
 
 ///////////////////////////////////////////////////////
@@ -207,7 +249,7 @@ model EscrowHolding {
   customer   User   @relation("EscrowCustomer", fields: [customerId], references: [id], onDelete: Cascade)
 
   agentId String?
-  agent   User?   @relation("EscrowAgent", fields: [agentId], references: [id])
+  agent   User? @relation("EscrowAgent", fields: [agentId], references: [id])
 
   totalAmount    Decimal @db.Decimal(12, 2)
   platformAmount Decimal @db.Decimal(12, 2)
@@ -217,10 +259,6 @@ model EscrowHolding {
   releasedAt DateTime?
 
   createdAt DateTime @default(now())
-
-  @@index([customerId])
-  @@index([agentId])
-  @@index([isReleased])
 }
 
 ///////////////////////////////////////////////////////
@@ -243,12 +281,6 @@ model Transaction {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
-
-  @@index([userId])
-  @@index([status])
-  @@index([type])
-  @@index([gatewayOrderId])
-  @@index([createdAt])
 }
 
 ///////////////////////////////////////////////////////
@@ -259,7 +291,7 @@ model AgentMetrics {
   id String @id @default(uuid())
 
   agentId String @unique
-  agent   User   @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  agent   User @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
   activeCases    Int @default(0)
   completedCases Int @default(0)
@@ -281,7 +313,7 @@ model Withdrawal {
   id String @id @default(uuid())
 
   agentId String
-  agent   User   @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  agent   User @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
   amount Decimal          @db.Decimal(12, 2)
   status WithdrawalStatus @default(PENDING)
@@ -291,10 +323,6 @@ model Withdrawal {
   failureReason String?
 
   createdAt DateTime @default(now())
-
-  @@index([agentId])
-  @@index([status])
-  @@index([createdAt])
 }
 
 ///////////////////////////////////////////////////////
@@ -305,7 +333,7 @@ model Notification {
   id String @id @default(uuid())
 
   userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   type    NotificationType
   title   String
@@ -314,8 +342,64 @@ model Notification {
   isRead Boolean @default(false)
 
   createdAt DateTime @default(now())
+}
 
-  @@index([userId])
-  @@index([isRead])
-  @@index([createdAt])
+///////////////////////////////////////////////////////
+// TICKET
+///////////////////////////////////////////////////////
+
+model Ticket {
+  id String @id @default(uuid())
+
+  title       String
+  description String
+
+  status   TicketStatus   @default(OPEN)
+  priority TicketPriority @default(MEDIUM)
+  category TicketCategory
+
+  createdById String
+  createdBy   User @relation("CreatedTickets", fields: [createdById], references: [id], onDelete: Cascade)
+
+  assignedToId String?
+  assignedTo   User? @relation("AssignedTickets", fields: [assignedToId], references: [id])
+
+  responses TicketResponse[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model TicketResponse {
+  id String @id @default(uuid())
+
+  ticketId String
+  ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  message String
+
+  createdAt DateTime @default(now())
+}
+
+///////////////////////////////////////////////////////
+// AUDIT LOG
+///////////////////////////////////////////////////////
+
+model AuditLog {
+  id String @id @default(uuid())
+
+  userId String?
+  user   User? @relation(fields: [userId], references: [id])
+
+  action       AuditAction
+  resourceType String
+  resourceId   String?
+
+  oldData Json?
+  newData Json?
+
+  createdAt DateTime @default(now())
 }
