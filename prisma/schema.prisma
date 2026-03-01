@@ -141,8 +141,6 @@ model User {
 
   ticketsCreated  Ticket[] @relation("CreatedTickets")
   ticketsAssigned Ticket[] @relation("AssignedTickets")
-
-  // ✅ FIXED: Missing opposite relation
   ticketResponses TicketResponse[]
 
   auditLogs AuditLog[]
@@ -246,7 +244,7 @@ model EscrowHolding {
   application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
   customerId String
-  customer   User   @relation("EscrowCustomer", fields: [customerId], references: [id], onDelete: Cascade)
+  customer   User @relation("EscrowCustomer", fields: [customerId], references: [id], onDelete: Cascade)
 
   agentId String?
   agent   User? @relation("EscrowAgent", fields: [agentId], references: [id])
@@ -278,7 +276,7 @@ model Transaction {
   metadata    Json?
 
   userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
 }
@@ -339,6 +337,8 @@ model Notification {
   title   String
   message String
 
+  metadata Json?   // 🔥 restored for your repository
+
   isRead Boolean @default(false)
 
   createdAt DateTime @default(now())
@@ -397,6 +397,9 @@ model AuditLog {
   action       AuditAction
   resourceType String
   resourceId   String?
+
+  method  String?   // 🔥 restored
+  success Boolean @default(true)  // 🔥 restored
 
   oldData Json?
   newData Json?
