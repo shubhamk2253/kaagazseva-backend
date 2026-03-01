@@ -80,3 +80,9 @@ process.on('uncaughtException', (error) => {
 });
 
 export default app;
+app.get('/', (req, res) => {
+  res.json({
+    status: 'success',
+    message: 'KaagazSeva Backend is Live 🚀',
+  });
+});
