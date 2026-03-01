@@ -7,55 +7,54 @@ import { apiLimiter } from '../../middleware/rateLimit.middleware';
 
 /**
  * KAAGAZSEVA - Ticket Routes
- * Finalizing the support communication channel.
+ * Enterprise Support Communication Layer
  */
 const router = Router();
 
-/* =====================================================
-   GLOBAL PROTECTION
-   All ticket routes require authentication
-===================================================== */
+//////////////////////////////////////////////////////
+// GLOBAL AUTH PROTECTION
+//////////////////////////////////////////////////////
 router.use(requireAuth);
 
-/* =====================================================
-   CREATE TICKET
-   POST /api/v1/tickets
-===================================================== */
+//////////////////////////////////////////////////////
+// CREATE TICKET
+// POST /api/v1/tickets
+//////////////////////////////////////////////////////
 router.post(
   '/',
-  apiLimiter, // Prevent Ticket Bombing
+  apiLimiter, // Prevent spam / ticket bombing
   validate(ticketSchema.create),
   TicketController.create
 );
 
-/* =====================================================
-   LIST TICKETS
-   GET /api/v1/tickets
-   (Citizens see theirs, Admin/Agent see filtered list)
-===================================================== */
+//////////////////////////////////////////////////////
+// LIST TICKETS
+// GET /api/v1/tickets
+// - Customers → Only their tickets
+// - Admin/Agent → Filtered system view
+//////////////////////////////////////////////////////
 router.get(
   '/',
   TicketController.list
 );
 
-/* =====================================================
-   GET TICKET THREAD
-   GET /api/v1/tickets/:id
-===================================================== */
+//////////////////////////////////////////////////////
+// GET SINGLE TICKET THREAD
+// GET /api/v1/tickets/:id
+//////////////////////////////////////////////////////
 router.get(
   '/:id',
-  validate(ticketSchema.addMessage.pick({ params: true })), 
-  // Reusing param validation (UUID check)
+  validate(ticketSchema.params), // Clean UUID validation
   TicketController.getThread
 );
 
-/* =====================================================
-   ADD MESSAGE TO TICKET
-   POST /api/v1/tickets/:id/messages
-===================================================== */
+//////////////////////////////////////////////////////
+// ADD MESSAGE TO TICKET
+// POST /api/v1/tickets/:id/messages
+//////////////////////////////////////////////////////
 router.post(
   '/:id/messages',
-  apiLimiter, // Prevent reply spam
+  apiLimiter, // Prevent reply flooding
   validate(ticketSchema.addMessage),
   TicketController.reply
 );

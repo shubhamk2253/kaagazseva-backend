@@ -3,14 +3,23 @@ import { TicketStatus, TicketPriority, TicketCategory } from '@prisma/client';
 
 /**
  * KAAGAZSEVA - Ticket Validation Schemas
- * Structured validation for grievance redressal system.
+ * Enterprise Support Layer Validation
  */
 
 export const ticketSchema = {
 
-  /* =====================================================
-     CREATE TICKET (Citizen)
-  ===================================================== */
+  //////////////////////////////////////////////////////
+  // PARAM VALIDATION (UUID)
+  //////////////////////////////////////////////////////
+  params: z.object({
+    params: z.object({
+      id: z.string().uuid("Invalid Ticket ID"),
+    }),
+  }),
+
+  //////////////////////////////////////////////////////
+  // CREATE TICKET (Citizen)
+  //////////////////////////////////////////////////////
   create: z.object({
     body: z.object({
       subject: z
@@ -34,9 +43,9 @@ export const ticketSchema = {
     }),
   }),
 
-  /* =====================================================
-     ADD MESSAGE (Citizen / Staff)
-  ===================================================== */
+  //////////////////////////////////////////////////////
+  // ADD MESSAGE (Citizen / Staff)
+  //////////////////////////////////////////////////////
   addMessage: z.object({
     params: z.object({
       id: z.string().uuid("Invalid Ticket ID"),
@@ -55,9 +64,9 @@ export const ticketSchema = {
     }),
   }),
 
-  /* =====================================================
-     UPDATE STATUS / ASSIGN (Admin / Agent)
-  ===================================================== */
+  //////////////////////////////////////////////////////
+  // UPDATE STATUS / ASSIGN (Admin / Agent)
+  //////////////////////////////////////////////////////
   updateStatus: z.object({
     params: z.object({
       id: z.string().uuid("Invalid Ticket ID"),

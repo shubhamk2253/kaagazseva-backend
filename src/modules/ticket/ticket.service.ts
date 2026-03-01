@@ -3,27 +3,27 @@ import { AppError } from '../../core/AppError';
 import { TicketStatus, UserRole, TicketPriority } from '@prisma/client';
 
 /**
- * KAAGAZSEVA - Ticket Service
- * Business logic for grievance lifecycle & threaded communication.
+ * KAAGAZSEVA - Ticket Service (Schema Aligned)
  */
 export class TicketService {
 
-  /* =====================================================
-     CREATE TICKET (Customer)
-  ===================================================== */
+  //////////////////////////////////////////////////////
+  // CREATE TICKET (Customer)
+  //////////////////////////////////////////////////////
+
   static async createTicket(userId: string, data: any) {
     return TicketRepository.create(userId, data);
   }
 
-  /* =====================================================
-     ADD RESPONSE (Threaded Conversation)
-  ===================================================== */
+  //////////////////////////////////////////////////////
+  // ADD RESPONSE (Threaded Conversation)
+  //////////////////////////////////////////////////////
+
   static async addMessage(
     ticketId: string,
     senderId: string,
     role: UserRole,
-    message: string,
-    attachments?: string[]
+    message: string
   ) {
     const ticket = await TicketRepository.findByIdWithResponses(ticketId);
 
@@ -31,20 +31,23 @@ export class TicketService {
       throw new AppError('Ticket not found', 404);
     }
 
-    /* -----------------------------
-       SECURITY RULES
-    ----------------------------- */
+    //////////////////////////////////////////////////////
+    // SECURITY RULES
+    //////////////////////////////////////////////////////
 
     // Customers can only reply to their own tickets
-    if (role === UserRole.CUSTOMER && ticket.userId !== senderId) {
+    if (
+      role === UserRole.CUSTOMER &&
+      ticket.createdById !== senderId
+    ) {
       throw new AppError('Unauthorized access to this ticket', 403);
     }
 
-    /* -----------------------------
-       STATUS TRANSITION LOGIC
-    ----------------------------- */
+    //////////////////////////////////////////////////////
+    // STATUS TRANSITIONS
+    //////////////////////////////////////////////////////
 
-    // If staff replies to OPEN ticket → move to IN_PROGRESS
+    // Staff replies to OPEN → move to IN_PROGRESS
     if (
       (role === UserRole.ADMIN || role === UserRole.AGENT) &&
       ticket.status === TicketStatus.OPEN
@@ -55,7 +58,7 @@ export class TicketService {
       });
     }
 
-    // If customer replies to RESOLVED ticket → reopen
+    // Customer replies to RESOLVED → reopen
     if (
       role === UserRole.CUSTOMER &&
       ticket.status === TicketStatus.RESOLVED
@@ -68,14 +71,14 @@ export class TicketService {
     return TicketRepository.addResponse(
       ticketId,
       senderId,
-      message,
-      attachments
+      message
     );
   }
 
-  /* =====================================================
-     GET TICKET DETAILS
-  ===================================================== */
+  //////////////////////////////////////////////////////
+  // GET TICKET DETAILS
+  //////////////////////////////////////////////////////
+
   static async getTicketDetails(
     ticketId: string,
     userId: string,
@@ -88,16 +91,20 @@ export class TicketService {
     }
 
     // Customers can only view their own tickets
-    if (role === UserRole.CUSTOMER && ticket.userId !== userId) {
+    if (
+      role === UserRole.CUSTOMER &&
+      ticket.createdById !== userId
+    ) {
       throw new AppError('Unauthorized access', 403);
     }
 
     return ticket;
   }
 
-  /* =====================================================
-     LIST TICKETS (Role-aware filtering)
-  ===================================================== */
+  //////////////////////////////////////////////////////
+  // LIST TICKETS
+  //////////////////////////////////////////////////////
+
   static async listTickets(
     userId: string,
     role: UserRole,
@@ -108,12 +115,11 @@ export class TicketService {
 
     const skip = (page - 1) * limit;
 
-    // Remove pagination from DB filter
     const { page: _p, limit: _l, ...dbFilters } = filters;
 
     // Customers only see their own tickets
     if (role === UserRole.CUSTOMER) {
-      dbFilters.userId = userId;
+      dbFilters.createdById = userId;
     }
 
     const result = await TicketRepository.listAll(
@@ -129,9 +135,10 @@ export class TicketService {
     };
   }
 
-  /* =====================================================
-     ADMIN UPDATE STATUS / PRIORITY
-  ===================================================== */
+  //////////////////////////////////////////////////////
+  // ADMIN UPDATE
+  //////////////////////////////////////////////////////
+
   static async updateTicket(
     ticketId: string,
     data: {
@@ -140,8 +147,6 @@ export class TicketService {
       assignedTo?: string;
     }
   ) {
-    const ticket = await TicketRepository.updateTicket(ticketId, data);
-
-    return ticket;
+    return TicketRepository.updateTicket(ticketId, data);
   }
 }

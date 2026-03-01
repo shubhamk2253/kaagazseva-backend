@@ -3,38 +3,39 @@ import {
   TicketStatus,
   TicketPriority,
   TicketCategory,
-  Prisma
+  Prisma,
 } from '@prisma/client';
 import { CreateTicketInput } from './ticket.types';
 
 /**
- * KAAGAZSEVA - Ticket Repository
- * Persistence layer for support engine.
+ * KAAGAZSEVA - Ticket Repository (Schema Aligned)
  */
 export class TicketRepository {
 
-  /* =====================================================
-     CREATE TICKET
-  ===================================================== */
+  //////////////////////////////////////////////////////
+  // CREATE TICKET
+  //////////////////////////////////////////////////////
+
   static async create(
     userId: string,
     data: CreateTicketInput
   ) {
     return prisma.ticket.create({
       data: {
-        userId,
-        subject: data.subject,
+        title: data.subject, // map subject → title
         description: data.description,
         category: data.category as TicketCategory,
         priority: data.priority || TicketPriority.MEDIUM,
         status: TicketStatus.OPEN,
+        createdById: userId,
       },
     });
   }
 
-  /* =====================================================
-     GET TICKET WITH FULL THREAD
-  ===================================================== */
+  //////////////////////////////////////////////////////
+  // GET TICKET WITH FULL THREAD
+  //////////////////////////////////////////////////////
+
   static async findByIdWithResponses(id: string) {
     return prisma.ticket.findUnique({
       where: { id },
@@ -42,7 +43,7 @@ export class TicketRepository {
         responses: {
           orderBy: { createdAt: 'asc' },
           include: {
-            sender: {
+            user: {
               select: {
                 id: true,
                 name: true,
@@ -51,7 +52,7 @@ export class TicketRepository {
             },
           },
         },
-        user: {
+        createdBy: {
           select: {
             id: true,
             name: true,
@@ -59,7 +60,7 @@ export class TicketRepository {
             role: true,
           },
         },
-        assignedUser: {
+        assignedTo: {
           select: {
             id: true,
             name: true,
@@ -69,23 +70,22 @@ export class TicketRepository {
     });
   }
 
-  /* =====================================================
-     ADD MESSAGE TO THREAD
-  ===================================================== */
+  //////////////////////////////////////////////////////
+  // ADD MESSAGE TO THREAD
+  //////////////////////////////////////////////////////
+
   static async addResponse(
     ticketId: string,
     senderId: string,
-    message: string,
-    attachments?: string[]
+    message: string
   ) {
     return prisma.$transaction(async (tx) => {
 
       const response = await tx.ticketResponse.create({
         data: {
           ticketId,
-          senderId,
+          userId: senderId,
           message,
-          attachments: attachments ?? [],
         },
       });
 
@@ -98,9 +98,10 @@ export class TicketRepository {
     });
   }
 
-  /* =====================================================
-     UPDATE STATUS / ASSIGN
-  ===================================================== */
+  //////////////////////////////////////////////////////
+  // UPDATE STATUS / ASSIGN
+  //////////////////////////////////////////////////////
+
   static async updateTicket(
     ticketId: string,
     data: {
@@ -111,13 +112,22 @@ export class TicketRepository {
   ) {
     return prisma.ticket.update({
       where: { id: ticketId },
-      data,
+      data: {
+        status: data.status,
+        priority: data.priority,
+        ...(data.assignedTo && {
+          assignedTo: {
+            connect: { id: data.assignedTo },
+          },
+        }),
+      },
     });
   }
 
-  /* =====================================================
-     ADMIN LIST WITH FILTERS
-  ===================================================== */
+  //////////////////////////////////////////////////////
+  // ADMIN LIST WITH FILTERS
+  //////////////////////////////////////////////////////
+
   static async listAll(
     where: Prisma.TicketWhereInput,
     skip: number,
@@ -130,10 +140,10 @@ export class TicketRepository {
         skip,
         take,
         include: {
-          user: {
+          createdBy: {
             select: { name: true, phoneNumber: true },
           },
-          assignedUser: {
+          assignedTo: {
             select: { name: true },
           },
         },
