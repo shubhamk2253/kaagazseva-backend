@@ -6,14 +6,13 @@ import { RequestWithUser } from '../../core/types';
 
 /**
  * KAAGAZSEVA - Ticket Controller
- * Handles grievance intake and threaded communication.
+ * Enterprise Support Communication Layer
  */
 export class TicketController {
 
-  /* =====================================================
-     CREATE TICKET
-     POST /api/v1/tickets
-  ===================================================== */
+  //////////////////////////////////////////////////////
+  // CREATE TICKET
+  //////////////////////////////////////////////////////
   static create = asyncHandler(async (req: RequestWithUser, res: Response) => {
     const userId = req.user!.userId;
 
@@ -27,10 +26,9 @@ export class TicketController {
     );
   });
 
-  /* =====================================================
-     LIST TICKETS
-     GET /api/v1/tickets
-  ===================================================== */
+  //////////////////////////////////////////////////////
+  // LIST TICKETS
+  //////////////////////////////////////////////////////
   static list = asyncHandler(async (req: RequestWithUser, res: Response) => {
     const { userId, role } = req.user!;
 
@@ -47,10 +45,9 @@ export class TicketController {
     );
   });
 
-  /* =====================================================
-     GET THREAD
-     GET /api/v1/tickets/:id
-  ===================================================== */
+  //////////////////////////////////////////////////////
+  // GET THREAD
+  //////////////////////////////////////////////////////
   static getThread = asyncHandler(async (req: RequestWithUser, res: Response) => {
     const { id } = req.params;
     const { userId, role } = req.user!;
@@ -68,21 +65,19 @@ export class TicketController {
     );
   });
 
-  /* =====================================================
-     ADD MESSAGE
-     POST /api/v1/tickets/:id/messages
-  ===================================================== */
+  //////////////////////////////////////////////////////
+  // ADD MESSAGE
+  //////////////////////////////////////////////////////
   static reply = asyncHandler(async (req: RequestWithUser, res: Response) => {
     const { id } = req.params;
     const { userId, role } = req.user!;
-    const { message, attachments } = req.body;
+    const { message } = req.body; // 🔥 attachments removed
 
     const response = await TicketService.addMessage(
       id,
       userId,
       role,
-      message,
-      attachments
+      message
     );
 
     return ApiResponse.success(
