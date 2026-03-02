@@ -18,13 +18,18 @@ router.post("/send", async (req, res) => {
       });
     }
 
+    // Generate 6-digit OTP
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+    // Expiry 5 minutes
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
+    // Remove old OTPs
     await prisma.otp.deleteMany({
       where: { mobile },
     });
 
+    // Store OTP
     await prisma.otp.create({
       data: {
         mobile,
@@ -41,6 +46,7 @@ router.post("/send", async (req, res) => {
     });
   } catch (error: any) {
     console.error("OTP SEND ERROR:", error.message);
+
     return res.status(500).json({
       success: false,
       message: "Failed to generate OTP",
@@ -62,6 +68,7 @@ router.post("/verify", async (req, res) => {
       });
     }
 
+    // Find OTP record
     const record = await prisma.otp.findFirst({
       where: {
         mobile,
@@ -83,6 +90,7 @@ router.post("/verify", async (req, res) => {
       });
     }
 
+    // Delete OTP after verification
     await prisma.otp.deleteMany({
       where: { mobile },
     });
@@ -90,6 +98,7 @@ router.post("/verify", async (req, res) => {
     /* =====================================================
        FIND OR CREATE USER
     ===================================================== */
+
     let user = await prisma.user.findUnique({
       where: { phoneNumber: mobile },
     });
@@ -104,12 +113,14 @@ router.post("/verify", async (req, res) => {
     }
 
     /* =====================================================
-       GENERATE TOKEN USING JwtService (CRITICAL FIX)
+       GENERATE ACCESS TOKEN
+       Must match TokenPayload interface
     ===================================================== */
 
     const accessToken = JwtService.signAccessToken({
-      userId: user.id,   // ✅ correct key
-      role: user.role,   // ✅ enum safe
+      userId: user.id,
+      role: user.role,
+      phoneNumber: user.phoneNumber, // 🔥 REQUIRED
     });
 
     return res.json({
@@ -119,8 +130,10 @@ router.post("/verify", async (req, res) => {
         user,
       },
     });
+
   } catch (error: any) {
     console.error("OTP VERIFY ERROR:", error.message);
+
     return res.status(500).json({
       success: false,
       message: "OTP verification failed",
