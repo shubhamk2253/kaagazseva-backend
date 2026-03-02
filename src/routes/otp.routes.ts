@@ -1,6 +1,6 @@
 import { Router } from "express";
-import jwt from "jsonwebtoken";
 import prisma from "../core/prisma";
+import { JwtService } from "../infrastructure/jwt/jwt.service";
 
 const router = Router();
 
@@ -18,18 +18,13 @@ router.post("/send", async (req, res) => {
       });
     }
 
-    // Generate 6-digit OTP
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-
-    // Expiry 5 minutes
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
-    // Delete old OTPs
     await prisma.otp.deleteMany({
       where: { mobile },
     });
 
-    // Save OTP
     await prisma.otp.create({
       data: {
         mobile,
@@ -44,7 +39,6 @@ router.post("/send", async (req, res) => {
       success: true,
       message: "OTP generated successfully (dev mode)",
     });
-
   } catch (error: any) {
     console.error("OTP SEND ERROR:", error.message);
     return res.status(500).json({
@@ -89,7 +83,6 @@ router.post("/verify", async (req, res) => {
       });
     }
 
-    // Delete OTP after successful verification
     await prisma.otp.deleteMany({
       where: { mobile },
     });
@@ -111,31 +104,21 @@ router.post("/verify", async (req, res) => {
     }
 
     /* =====================================================
-       GENERATE JWT
-       IMPORTANT: MUST MATCH AUTH MIDDLEWARE SECRET
+       GENERATE TOKEN USING JwtService (CRITICAL FIX)
     ===================================================== */
 
-    if (!process.env.JWT_ACCESS_SECRET) {
-      throw new Error("JWT_ACCESS_SECRET not defined");
-    }
-
-    const token = jwt.sign(
-      {
-        id: user.id,
-        role: user.role,
-      },
-      process.env.JWT_ACCESS_SECRET,
-      { expiresIn: "7d" }
-    );
+    const accessToken = JwtService.signAccessToken({
+      userId: user.id,   // ✅ correct key
+      role: user.role,   // ✅ enum safe
+    });
 
     return res.json({
       success: true,
       data: {
-        accessToken: token,
+        accessToken,
         user,
       },
     });
-
   } catch (error: any) {
     console.error("OTP VERIFY ERROR:", error.message);
     return res.status(500).json({
