@@ -25,6 +25,10 @@ export class JwtService {
   ===================================================== */
 
   static signAccessToken(payload: TokenPayload): string {
+    if (!this.accessSecret) {
+      throw new Error('JWT_ACCESS_SECRET is not defined');
+    }
+
     const options: SignOptions = {
       expiresIn: this.accessExpiry,
     };
@@ -34,6 +38,10 @@ export class JwtService {
 
   static verifyAccessToken(token: string): TokenPayload {
     try {
+      if (!this.accessSecret) {
+        throw new Error('JWT_ACCESS_SECRET is not defined');
+      }
+
       const decoded = jwt.verify(
         token,
         this.accessSecret
@@ -64,6 +72,10 @@ export class JwtService {
   ===================================================== */
 
   static signRefreshToken(payload: TokenPayload): string {
+    if (!this.refreshSecret) {
+      throw new Error('JWT_REFRESH_SECRET is not defined');
+    }
+
     const options: SignOptions = {
       expiresIn: this.refreshExpiry,
     };
@@ -73,6 +85,10 @@ export class JwtService {
 
   static verifyRefreshToken(token: string): TokenPayload {
     try {
+      if (!this.refreshSecret) {
+        throw new Error('JWT_REFRESH_SECRET is not defined');
+      }
+
       const decoded = jwt.verify(
         token,
         this.refreshSecret
