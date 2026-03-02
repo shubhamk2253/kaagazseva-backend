@@ -112,9 +112,11 @@ router.post("/verify", async (req, res) => {
 
     /* =====================================================
        GENERATE JWT
+       IMPORTANT: MUST MATCH AUTH MIDDLEWARE SECRET
     ===================================================== */
-    if (!process.env.JWT_SECRET) {
-      throw new Error("JWT_SECRET not defined");
+
+    if (!process.env.JWT_ACCESS_SECRET) {
+      throw new Error("JWT_ACCESS_SECRET not defined");
     }
 
     const token = jwt.sign(
@@ -122,7 +124,7 @@ router.post("/verify", async (req, res) => {
         id: user.id,
         role: user.role,
       },
-      process.env.JWT_SECRET,
+      process.env.JWT_ACCESS_SECRET,
       { expiresIn: "7d" }
     );
 
