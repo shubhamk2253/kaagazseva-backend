@@ -5,16 +5,16 @@ import prisma from "../core/prisma";
 const router = Router();
 
 /* =====================================================
-   SEND OTP (DEV MODE)
+   SEND OTP (DEV MODE - DATABASE STORED)
 ===================================================== */
 router.post("/send", async (req, res) => {
   try {
     const { mobile } = req.body;
 
-    if (!mobile) {
+    if (!mobile || mobile.length < 10) {
       return res.status(400).json({
         success: false,
-        message: "Mobile number is required",
+        message: "Valid mobile number required",
       });
     }
 
@@ -24,12 +24,12 @@ router.post("/send", async (req, res) => {
     // Expiry 5 minutes
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
-    // Delete previous OTPs for same mobile
+    // Delete old OTPs
     await prisma.otp.deleteMany({
       where: { mobile },
     });
 
-    // Store OTP
+    // Save OTP
     await prisma.otp.create({
       data: {
         mobile,
@@ -38,16 +38,15 @@ router.post("/send", async (req, res) => {
       },
     });
 
-    // DEV: print OTP in console
     console.log(`🔥 DEV OTP for ${mobile} is ${otp}`);
 
     return res.json({
       success: true,
-      message: "OTP generated (dev mode)",
+      message: "OTP generated successfully (dev mode)",
     });
 
-  } catch (error) {
-    console.error("OTP SEND ERROR:", error);
+  } catch (error: any) {
+    console.error("OTP SEND ERROR:", error.message);
     return res.status(500).json({
       success: false,
       message: "Failed to generate OTP",
@@ -90,7 +89,7 @@ router.post("/verify", async (req, res) => {
       });
     }
 
-    // Delete used OTP
+    // Delete OTP after successful verification
     await prisma.otp.deleteMany({
       where: { mobile },
     });
@@ -114,12 +113,16 @@ router.post("/verify", async (req, res) => {
     /* =====================================================
        GENERATE JWT
     ===================================================== */
+    if (!process.env.JWT_SECRET) {
+      throw new Error("JWT_SECRET not defined");
+    }
+
     const token = jwt.sign(
       {
         id: user.id,
         role: user.role,
       },
-      process.env.JWT_SECRET!,
+      process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
 
@@ -127,18 +130,12 @@ router.post("/verify", async (req, res) => {
       success: true,
       data: {
         accessToken: token,
-        user: {
-          id: user.id,
-          phoneNumber: user.phoneNumber,
-          name: user.name,
-          role: user.role,
-          createdAt: user.createdAt,
-        },
+        user,
       },
     });
 
-  } catch (error) {
-    console.error("OTP VERIFY ERROR:", error);
+  } catch (error: any) {
+    console.error("OTP VERIFY ERROR:", error.message);
     return res.status(500).json({
       success: false,
       message: "OTP verification failed",
