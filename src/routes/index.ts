@@ -6,18 +6,25 @@ import walletRoutes from '../modules/wallet/wallet.routes';
 import adminRoutes from '../modules/admin/admin.routes';
 import ticketRoutes from '../modules/ticket/ticket.routes';
 import notificationRoutes from '../modules/notification/notification.routes';
+import otpRoutes from './otp.routes'; // ✅ OTP ROUTES IMPORTED
 import { ApiResponse } from '../core/ApiResponse';
 
 /**
  * KAAGAZSEVA - Master Router (API v1)
  * Central registry for all application modules.
  */
+
 const router = Router();
 
 /* =====================================================
    PUBLIC AUTH ROUTES
 ===================================================== */
 router.use('/auth', authRoutes);
+
+/* =====================================================
+   OTP ROUTES (MSG91 Integration)
+===================================================== */
+router.use('/otp', otpRoutes);
 
 /* =====================================================
    USER & CORE MODULES
@@ -47,13 +54,12 @@ router.get('/health', (req, res) => {
     environment: process.env.NODE_ENV,
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
-    version: '1.0.0-enterprise'
+    version: '1.0.0-enterprise',
   });
 });
 
 /* =====================================================
    404 FALLBACK
-   If route not matched above
 ===================================================== */
 router.use('*', (req, res) => {
   return res.status(404).json({

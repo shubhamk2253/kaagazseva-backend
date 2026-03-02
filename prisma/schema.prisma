@@ -421,3 +421,17 @@ model AuditLog {
   @@index([resourceType])
   @@index([createdAt])
 }
+
+///////////////////////////////////////////////////////
+// OTP
+///////////////////////////////////////////////////////
+
+model Otp {
+  id        String   @id @default(uuid())
+  mobile    String
+  code      String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([mobile])
+}
