@@ -6,14 +6,15 @@ import logger from '../../core/logger';
 export class SuspensionService {
 
   //////////////////////////////////////////////////////
-  // 1️⃣ INITIATE SUSPENSION (DISTRICT / STATE / FOUNDER)
+  // 1️⃣ INITIATE (DISTRICT / STATE / FOUNDER)
   //////////////////////////////////////////////////////
 
-  static async initiateSuspension(
-    targetAgentId: string,
+  static async initiate(
+    targetUserId: string,
     reason: string,
-    performedById: string,
-    performerRole: UserRole
+    initiatedById: string,
+    performerRole: UserRole,
+    evidence?: any
   ) {
 
     if (!reason || reason.length < 5) {
@@ -28,165 +29,237 @@ export class SuspensionService {
       throw new AppError('Unauthorized governance action', 403);
     }
 
-    const agent = await prisma.user.findUnique({
-      where: { id: targetAgentId },
-    });
-
-    if (!agent || agent.role !== UserRole.AGENT) {
-      throw new AppError('Invalid agent', 400);
-    }
-
-    if (agent.suspensionStatus !== SuspensionStatus.NONE) {
-      throw new AppError('Suspension already in progress', 400);
-    }
-
-    await prisma.$transaction(async (tx) => {
-
-      await tx.user.update({
-        where: { id: targetAgentId },
-        data: {
-          suspensionStatus: SuspensionStatus.PENDING,
-          suspensionReason: reason,
-          suspendedBy: performedById,
-          suspendedAt: new Date(),
-        },
-      });
-
-      await tx.auditLog.create({
-        data: {
-          userId: performedById,
-          action: 'CREATE',
-          resourceType: 'SUSPENSION_INITIATED',
-          resourceId: targetAgentId,
-          newData: { reason },
-          success: true,
-        },
-      });
-
-    });
-
-    logger.warn(`⚠ Suspension initiated → ${targetAgentId}`);
-
-    return { message: 'Suspension initiated (Pending confirmation)' };
-  }
-
-  //////////////////////////////////////////////////////
-  // 2️⃣ CONFIRM SUSPENSION (STATE_ADMIN / FOUNDER)
-  //////////////////////////////////////////////////////
-
-  static async confirmSuspension(
-    targetAgentId: string,
-    performedById: string,
-    performerRole: UserRole
-  ) {
-
-    if (
-      performerRole !== UserRole.STATE_ADMIN &&
-      performerRole !== UserRole.FOUNDER
-    ) {
-      throw new AppError('Only State Admin or Founder can confirm', 403);
-    }
-
-    const agent = await prisma.user.findUnique({
-      where: { id: targetAgentId },
+    const target = await prisma.user.findUnique({
+      where: { id: targetUserId },
       include: { wallet: true },
     });
 
-    if (!agent || agent.suspensionStatus !== SuspensionStatus.PENDING) {
-      throw new AppError('No pending suspension found', 400);
+    if (!target || target.role !== UserRole.AGENT) {
+      throw new AppError('Invalid agent', 400);
     }
+
+    if (target.suspensionStatus !== SuspensionStatus.NONE) {
+      throw new AppError('Suspension already active', 400);
+    }
+
+    const level =
+      performerRole === UserRole.DISTRICT_ADMIN ? 1 :
+      performerRole === UserRole.STATE_ADMIN ? 2 :
+      3;
+
+    const deadline = new Date(Date.now() + 48 * 60 * 60 * 1000);
 
     await prisma.$transaction(async (tx) => {
 
-      await tx.user.update({
-        where: { id: targetAgentId },
+      await tx.suspensionCase.create({
         data: {
-          suspensionStatus: SuspensionStatus.CONFIRMED,
-          isSuspended: true,
+          userId: targetUserId,
+          initiatedById,
+          reason,
+          evidence,
+          level,
+          status: SuspensionStatus.UNDER_REVIEW,
         },
       });
 
-      if (agent.wallet) {
+      await tx.user.update({
+        where: { id: targetUserId },
+        data: {
+          suspensionStatus: SuspensionStatus.UNDER_REVIEW,
+          isSuspended: true,
+          suspensionLevel: level,
+          suspensionReviewDeadline: deadline,
+        },
+      });
+
+      if (target.wallet) {
         await tx.wallet.update({
-          where: { userId: targetAgentId },
+          where: { userId: targetUserId },
           data: { isFrozen: true },
         });
       }
 
       await tx.auditLog.create({
         data: {
-          userId: performedById,
-          action: 'UPDATE',
-          resourceType: 'SUSPENSION_CONFIRMED',
-          resourceId: targetAgentId,
+          userId: initiatedById,
+          action: 'CREATE',
+          resourceType: 'SUSPENSION_INITIATED',
+          resourceId: targetUserId,
+          newData: { reason, level },
           success: true,
         },
       });
 
     });
 
-    logger.warn(`🚨 Suspension confirmed → ${targetAgentId}`);
+    logger.warn(`⚠ Suspension initiated → ${targetUserId}`);
 
-    return { message: 'Suspension confirmed and wallet frozen' };
+    return { message: 'Suspension under review & wallet frozen' };
   }
 
   //////////////////////////////////////////////////////
-  // 3️⃣ REVERSE SUSPENSION (FOUNDER ONLY)
+  // 2️⃣ REVIEW (STRICT HIERARCHY ENFORCED)
   //////////////////////////////////////////////////////
 
-  static async reverseSuspension(
-    targetAgentId: string,
-    performedById: string,
-    performerRole: UserRole
+  static async review(
+    caseId: string,
+    reviewerId: string,
+    decision: 'CONFIRM' | 'REJECT'
   ) {
 
-    if (performerRole !== UserRole.FOUNDER) {
-      throw new AppError('Only Founder can reverse suspension', 403);
-    }
-
-    const agent = await prisma.user.findUnique({
-      where: { id: targetAgentId },
-      include: { wallet: true },
+    const suspensionCase = await prisma.suspensionCase.findUnique({
+      where: { id: caseId },
+      include: { user: true },
     });
 
-    if (!agent || agent.suspensionStatus === SuspensionStatus.NONE) {
-      throw new AppError('No suspension exists', 400);
+    if (!suspensionCase) {
+      throw new AppError('Case not found', 404);
+    }
+
+    if (
+      suspensionCase.status !== SuspensionStatus.UNDER_REVIEW &&
+      suspensionCase.status !== SuspensionStatus.ESCALATED &&
+      suspensionCase.status !== SuspensionStatus.AUTO_ESCALATED
+    ) {
+      throw new AppError('Case not eligible for review', 400);
+    }
+
+    const reviewer = await prisma.user.findUnique({
+      where: { id: reviewerId },
+    });
+
+    if (!reviewer) {
+      throw new AppError('Reviewer not found', 404);
+    }
+
+    //////////////////////////////////////////////////////
+    // Strict Level-Based Authority
+    //////////////////////////////////////////////////////
+
+    if (
+      suspensionCase.level === 1 &&
+      reviewer.role !== UserRole.STATE_ADMIN
+    ) {
+      throw new AppError('Only State Admin can review level 1 cases', 403);
+    }
+
+    if (
+      suspensionCase.level >= 2 &&
+      reviewer.role !== UserRole.FOUNDER
+    ) {
+      throw new AppError('Only Founder can review level 2+ cases', 403);
     }
 
     await prisma.$transaction(async (tx) => {
 
-      await tx.user.update({
-        where: { id: targetAgentId },
-        data: {
-          suspensionStatus: SuspensionStatus.NONE,
-          isSuspended: false,
-          suspensionReason: null,
-          suspendedBy: null,
-          suspendedAt: null,
-        },
-      });
+      if (decision === 'CONFIRM') {
 
-      if (agent.wallet) {
+        await tx.suspensionCase.update({
+          where: { id: caseId },
+          data: {
+            status: SuspensionStatus.CONFIRMED,
+            resolvedById: reviewerId,
+          },
+        });
+
+        await tx.user.update({
+          where: { id: suspensionCase.userId },
+          data: {
+            suspensionStatus: SuspensionStatus.CONFIRMED,
+            suspensionReviewDeadline: null,
+          },
+        });
+
+      } else {
+
+        await tx.suspensionCase.update({
+          where: { id: caseId },
+          data: {
+            status: SuspensionStatus.REJECTED,
+            resolvedById: reviewerId,
+          },
+        });
+
+        await tx.user.update({
+          where: { id: suspensionCase.userId },
+          data: {
+            suspensionStatus: SuspensionStatus.NONE,
+            isSuspended: false,
+            suspensionLevel: 0,
+            suspensionReviewDeadline: null,
+          },
+        });
+
         await tx.wallet.update({
-          where: { userId: targetAgentId },
+          where: { userId: suspensionCase.userId },
           data: { isFrozen: false },
         });
+
       }
 
       await tx.auditLog.create({
         data: {
-          userId: performedById,
+          userId: reviewerId,
           action: 'UPDATE',
-          resourceType: 'SUSPENSION_REVERSED',
-          resourceId: targetAgentId,
+          resourceType: 'SUSPENSION_REVIEW',
+          resourceId: suspensionCase.userId,
+          newData: { decision },
           success: true,
         },
       });
 
     });
 
-    logger.info(`✅ Suspension reversed → ${targetAgentId}`);
+    logger.info(`Suspension ${decision} → Case ${caseId}`);
 
-    return { message: 'Suspension reversed successfully' };
+    return { message: `Suspension ${decision}` };
+  }
+
+  //////////////////////////////////////////////////////
+  // 3️⃣ APPEAL (AGENT → ESCALATION)
+  //////////////////////////////////////////////////////
+
+  static async appeal(
+    caseId: string,
+    agentId: string,
+    message: string
+  ) {
+
+    if (!message || message.length < 5) {
+      throw new AppError('Valid appeal message required', 400);
+    }
+
+    const suspensionCase = await prisma.suspensionCase.findUnique({
+      where: { id: caseId },
+    });
+
+    if (!suspensionCase) {
+      throw new AppError('Case not found', 404);
+    }
+
+    if (suspensionCase.userId !== agentId) {
+      throw new AppError('Unauthorized', 403);
+    }
+
+    if (suspensionCase.status !== SuspensionStatus.CONFIRMED) {
+      throw new AppError('Only confirmed suspensions can be appealed', 400);
+    }
+
+    if (suspensionCase.appealAt) {
+      throw new AppError('Appeal already submitted', 400);
+    }
+
+    await prisma.suspensionCase.update({
+      where: { id: caseId },
+      data: {
+        status: SuspensionStatus.ESCALATED,
+        appealMessage: message,
+        appealAt: new Date(),
+      },
+    });
+
+    logger.info(`Appeal submitted → Case ${caseId}`);
+
+    return { message: 'Appeal submitted successfully' };
   }
 }

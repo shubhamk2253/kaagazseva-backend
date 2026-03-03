@@ -11,14 +11,14 @@ import logger from '../../core/logger';
 import { AssignmentEngine } from '../../modules/assignment/assignment.engine';
 
 /**
- * KAAGAZSEVA - Secure Application-Locked Payment Service
- * Flow:
- * DRAFT → PENDING_PAYMENT → SUBMITTED → Escrow → Assignment
+ * KAAGAZSEVA - FINANCIAL HARDENED PAYMENT SERVICE
+ * Phase 5B – Idempotent + Double Payment Protection
  */
+
 export class PaymentService {
 
   //////////////////////////////////////////////////////
-  // 1️⃣ CREATE PAYMENT ORDER (PHASE 2 HARDENED)
+  // 1️⃣ CREATE PAYMENT ORDER
   //////////////////////////////////////////////////////
 
   static async createPaymentOrder(
@@ -29,10 +29,6 @@ export class PaymentService {
     if (!userId || !applicationId) {
       throw new AppError('Missing required parameters', 400);
     }
-
-    //////////////////////////////////////////////////////
-    // 1️⃣ Fetch Application
-    //////////////////////////////////////////////////////
 
     const application = await prisma.application.findUnique({
       where: { id: applicationId },
@@ -54,13 +50,11 @@ export class PaymentService {
     }
 
     //////////////////////////////////////////////////////
-    // 2️⃣ Validate Mandatory Documents
+    // Validate Mandatory Documents
     //////////////////////////////////////////////////////
 
     const service = await prisma.service.findFirst({
-      where: {
-        name: application.serviceType,
-      },
+      where: { name: application.serviceType },
     });
 
     if (!service) {
@@ -83,10 +77,6 @@ export class PaymentService {
       }
     }
 
-    //////////////////////////////////////////////////////
-    // 3️⃣ Validate Amount
-    //////////////////////////////////////////////////////
-
     const amount = Number(application.totalAmount);
 
     if (!amount || amount <= 0) {
@@ -94,7 +84,7 @@ export class PaymentService {
     }
 
     //////////////////////////////////////////////////////
-    // 4️⃣ Create Transaction
+    // Create Transaction
     //////////////////////////////////////////////////////
 
     const transaction = await prisma.transaction.create({
@@ -121,15 +111,9 @@ export class PaymentService {
         data: { gatewayOrderId: razorpayOrder.id },
       });
 
-      //////////////////////////////////////////////////////
-      // Move Application → PENDING_PAYMENT
-      //////////////////////////////////////////////////////
-
       await prisma.application.update({
         where: { id: applicationId },
-        data: {
-          status: ApplicationStatus.PENDING_PAYMENT,
-        },
+        data: { status: ApplicationStatus.PENDING_PAYMENT },
       });
 
       return {
@@ -154,7 +138,7 @@ export class PaymentService {
   }
 
   //////////////////////////////////////////////////////
-  // 2️⃣ VERIFY PAYMENT (ESCROW FLOW)
+  // 2️⃣ VERIFY PAYMENT (STRICT IDEMPOTENT VERSION)
   //////////////////////////////////////////////////////
 
   static async verifyPayment(
@@ -176,12 +160,12 @@ export class PaymentService {
       throw new AppError('Transaction not found', 404);
     }
 
-    if (existingTransaction.status === TransactionStatus.SUCCESS) {
-      return { message: 'Already processed' };
-    }
-
     if (existingTransaction.gatewayOrderId !== orderId) {
       throw new AppError('Invalid order reference', 400);
+    }
+
+    if (existingTransaction.status === TransactionStatus.SUCCESS) {
+      return { message: 'Already processed' };
     }
 
     const isValid = RazorpayProvider.verifySignature(
@@ -200,22 +184,39 @@ export class PaymentService {
     }
 
     //////////////////////////////////////////////////////
-    // 🔒 ATOMIC TRANSACTION
+    // 🔒 HARDENED ATOMIC TRANSACTION
     //////////////////////////////////////////////////////
 
     const result = await prisma.$transaction(async (tx) => {
 
-      // 1️⃣ Mark Transaction SUCCESS
-      const transaction = await tx.transaction.update({
-        where: { id: transactionId },
+      //////////////////////////////////////////////////////
+      // Strict Compare-And-Set Update
+      //////////////////////////////////////////////////////
+
+      const updateResult = await tx.transaction.updateMany({
+        where: {
+          id: transactionId,
+          status: TransactionStatus.PENDING,
+        },
         data: {
           status: TransactionStatus.SUCCESS,
           gatewayPaymentId: paymentId,
         },
       });
 
+      if (updateResult.count === 0) {
+        throw new AppError(
+          'Transaction already processed or invalid state',
+          400
+        );
+      }
+
+      const originalTransaction = await tx.transaction.findUnique({
+        where: { id: transactionId },
+      });
+
       const applicationId =
-        (transaction.metadata as any)?.applicationId;
+        (originalTransaction?.metadata as any)?.applicationId;
 
       if (!applicationId) {
         throw new AppError('Application reference missing', 400);
@@ -230,11 +231,25 @@ export class PaymentService {
       }
 
       if (application.paymentStatus === TransactionStatus.SUCCESS) {
-        throw new AppError('Payment already processed', 400);
+        throw new AppError(
+          'Payment already processed at application level',
+          400
+        );
+      }
+
+      const existingEscrow = await tx.escrowHolding.findUnique({
+        where: { applicationId },
+      });
+
+      if (existingEscrow) {
+        throw new AppError(
+          'Escrow already exists for this application',
+          400
+        );
       }
 
       //////////////////////////////////////////////////////
-      // 2️⃣ Update Application → SUBMITTED
+      // Update Application
       //////////////////////////////////////////////////////
 
       await tx.application.update({
@@ -247,7 +262,7 @@ export class PaymentService {
       });
 
       //////////////////////////////////////////////////////
-      // 3️⃣ Create Escrow
+      // Create Escrow
       //////////////////////////////////////////////////////
 
       const agentAmount =
@@ -267,7 +282,7 @@ export class PaymentService {
       });
 
       //////////////////////////////////////////////////////
-      // 4️⃣ Escrow Hold Transaction
+      // Escrow Hold Transaction
       //////////////////////////////////////////////////////
 
       await tx.transaction.create({
@@ -287,7 +302,7 @@ export class PaymentService {
     });
 
     //////////////////////////////////////////////////////
-    // 🚀 Auto Assignment
+    // Auto Assignment
     //////////////////////////////////////////////////////
 
     try {

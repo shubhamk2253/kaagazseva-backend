@@ -1,4 +1,5 @@
 import { Router } from 'express';
+
 import authRoutes from '../modules/auth/auth.routes';
 import userRoutes from '../modules/user/user.routes';
 import applicationRoutes from '../modules/application/application.routes';
@@ -8,11 +9,16 @@ import ticketRoutes from '../modules/ticket/ticket.routes';
 import notificationRoutes from '../modules/notification/notification.routes';
 import otpRoutes from './otp.routes';
 import publicRoutes from '../modules/public/public.routes';
+
+import suspensionRoutes from '../modules/governance/suspension.routes';
+import founderVisibilityRoutes from '../modules/governance/founder-visibility.routes';
+import refundRoutes from '../modules/refund/refund.routes'; // ✅ Phase 5B
+
 import { ApiResponse } from '../core/ApiResponse';
 
 /**
  * KAAGAZSEVA - Master Router (API v1)
- * Central registry for all application modules.
+ * Central API registry
  */
 
 const router = Router();
@@ -24,15 +30,10 @@ const router = Router();
 router.use('/public', publicRoutes);
 
 ///////////////////////////////////////////////////////
-// PUBLIC AUTH ROUTES
+// AUTH
 ///////////////////////////////////////////////////////
 
 router.use('/auth', authRoutes);
-
-///////////////////////////////////////////////////////
-// OTP ROUTES
-///////////////////////////////////////////////////////
-
 router.use('/otp', otpRoutes);
 
 ///////////////////////////////////////////////////////
@@ -44,7 +45,20 @@ router.use('/applications', applicationRoutes);
 router.use('/wallet', walletRoutes);
 
 ///////////////////////////////////////////////////////
-// SUPPORT & COMMUNICATION
+// REFUND GOVERNANCE (PHASE 5B)
+///////////////////////////////////////////////////////
+
+router.use('/refunds', refundRoutes);
+
+///////////////////////////////////////////////////////
+// GOVERNANCE & SUSPENSION (PHASE 6)
+///////////////////////////////////////////////////////
+
+router.use('/suspensions', suspensionRoutes);
+router.use('/governance', founderVisibilityRoutes);
+
+///////////////////////////////////////////////////////
+// SUPPORT
 ///////////////////////////////////////////////////////
 
 router.use('/tickets', ticketRoutes);
@@ -57,10 +71,10 @@ router.use('/notifications', notificationRoutes);
 router.use('/admin', adminRoutes);
 
 ///////////////////////////////////////////////////////
-// SYSTEM HEALTH CHECK
+// SYSTEM HEALTH
 ///////////////////////////////////////////////////////
 
-router.get('/health', (req, res) => {
+router.get('/health', (_req, res) => {
   return ApiResponse.success(res, 'System healthy', {
     status: 'healthy',
     environment: process.env.NODE_ENV,

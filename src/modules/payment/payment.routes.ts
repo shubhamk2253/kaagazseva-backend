@@ -2,12 +2,17 @@ import { Router } from 'express';
 import { PaymentController } from './payment.controller';
 import { requireAuth } from '../../middleware/auth.middleware';
 import { apiLimiter } from '../../middleware/rateLimit.middleware';
+import { validate } from '../../middleware/validate.middleware';
+import { paymentSchema } from './payment.schema';
 
 const router = Router();
 
 /**
- * All payment routes require authentication
+ * KAAGAZSEVA - Payment Routes
+ * Phase 5B Hardened
  */
+
+// All payment routes require authentication
 router.use(requireAuth);
 
 //////////////////////////////////////////////////////
@@ -17,16 +22,18 @@ router.use(requireAuth);
 router.post(
   '/create-order',
   apiLimiter,
+  validate(paymentSchema.createOrder),
   PaymentController.createOrder
 );
 
 //////////////////////////////////////////////////////
-// VERIFY PAYMENT
+// VERIFY PAYMENT (Idempotent Safe)
 //////////////////////////////////////////////////////
 
 router.post(
   '/verify',
   apiLimiter,
+  validate(paymentSchema.verifyPayment),
   PaymentController.verifyPayment
 );
 

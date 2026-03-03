@@ -4,16 +4,17 @@ import { asyncHandler } from '../../core/asyncHandler';
 import { ApiResponse } from '../../core/ApiResponse';
 import { RequestWithUser } from '../../core/types';
 import { AppError } from '../../core/AppError';
+import logger from '../../core/logger';
 
 /**
  * KAAGAZSEVA - Payment Controller
- * Handles Razorpay order creation & verification
+ * Phase 5B Hardened
  */
+
 export class PaymentController {
 
   //////////////////////////////////////////////////////
   // 1️⃣ CREATE PAYMENT ORDER
-  // POST /api/v1/payments/create-order
   //////////////////////////////////////////////////////
 
   static createOrder = asyncHandler(
@@ -31,6 +32,10 @@ export class PaymentController {
         throw new AppError('Application ID is required', 400);
       }
 
+      logger.info(
+        `Payment order requested | user=${userId} | app=${applicationId}`
+      );
+
       const result = await PaymentService.createPaymentOrder(
         userId,
         applicationId
@@ -45,8 +50,7 @@ export class PaymentController {
   );
 
   //////////////////////////////////////////////////////
-  // 2️⃣ VERIFY PAYMENT
-  // POST /api/v1/payments/verify
+  // 2️⃣ VERIFY PAYMENT (Idempotent Safe)
   //////////////////////////////////////////////////////
 
   static verifyPayment = asyncHandler(
@@ -58,6 +62,14 @@ export class PaymentController {
         signature,
         transactionId,
       } = req.body;
+
+      if (!orderId || !paymentId || !signature || !transactionId) {
+        throw new AppError('Invalid verification payload', 400);
+      }
+
+      logger.info(
+        `Payment verification attempt | tx=${transactionId}`
+      );
 
       const result = await PaymentService.verifyPayment(
         orderId,

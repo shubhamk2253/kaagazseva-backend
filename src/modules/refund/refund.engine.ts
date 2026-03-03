@@ -59,7 +59,7 @@ export class RefundEngine {
     refundAmount?: number
   ) {
 
-    if (adminRole !== UserRole.ADMIN) {
+    if (adminRole !== UserRole.STATE_ADMIN) {
       throw new AppError('Only admin can process refunds', 403);
     }
 
@@ -201,7 +201,7 @@ export class RefundEngine {
     adminRole: UserRole
   ) {
 
-    if (adminRole !== UserRole.ADMIN) {
+    if (adminRole !== UserRole.STATE_ADMIN) {
       throw new AppError('Only admin can reject refund', 403);
     }
 

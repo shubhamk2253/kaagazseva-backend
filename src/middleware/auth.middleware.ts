@@ -4,16 +4,16 @@ import { AppError } from '../core/AppError';
 import { RequestWithUser } from '../core/types';
 import { UserRole } from '@prisma/client';
 import logger from '../core/logger';
-import {redis} from '../config/redis';
+import { redis } from '../config/redis';
 
 /**
  * KAAGAZSEVA - Authentication & Authorization Middleware
  * Enterprise-grade JWT protection with RBAC.
  */
 
-/* =========================================================
-   1️⃣ AUTHENTICATION MIDDLEWARE
-========================================================= */
+///////////////////////////////////////////////////////////
+// 1️⃣ AUTHENTICATION MIDDLEWARE
+///////////////////////////////////////////////////////////
 
 export const requireAuth: RequestHandler = async (
   req: RequestWithUser,
@@ -37,16 +37,29 @@ export const requireAuth: RequestHandler = async (
       throw new AppError('Access token missing.', 401);
     }
 
+    ///////////////////////////////////////////////////////
     // 🔐 Verify Access Token
+    ///////////////////////////////////////////////////////
+
     const decoded = JwtService.verifyAccessToken(token);
 
-    // 🔒 OPTIONAL: Token Blacklist Check (Ready for upgrade)
+    ///////////////////////////////////////////////////////
+    // 🔒 Token Blacklist Check (Redis)
+    ///////////////////////////////////////////////////////
+
     const isBlacklisted = await redis.get(`blacklist:${token}`);
+
     if (isBlacklisted) {
-      throw new AppError('Session invalidated. Please log in again.', 401);
+      throw new AppError(
+        'Session invalidated. Please log in again.',
+        401
+      );
     }
 
+    ///////////////////////////////////////////////////////
     // Attach user context
+    ///////////////////////////////////////////////////////
+
     req.user = decoded;
 
     return next();
@@ -55,17 +68,25 @@ export const requireAuth: RequestHandler = async (
   }
 };
 
-/* =========================================================
-   2️⃣ ROLE AUTHORIZATION MIDDLEWARE
-========================================================= */
+///////////////////////////////////////////////////////////
+// 2️⃣ ROLE AUTHORIZATION MIDDLEWARE (RBAC)
+///////////////////////////////////////////////////////////
 
-export const requireRole = (allowedRoles: UserRole[]): RequestHandler => {
-  return (req: RequestWithUser, _res: Response, next: NextFunction) => {
+export const requireRole = (
+  allowedRoles: UserRole[]
+): RequestHandler => {
+  return (
+    req: RequestWithUser,
+    _res: Response,
+    next: NextFunction
+  ) => {
     if (!req.user) {
       logger.error(
         `[Security Error] requireRole used without requireAuth on ${req.originalUrl}`
       );
-      return next(new AppError('Authentication context missing.', 500));
+      return next(
+        new AppError('Authentication context missing.', 500)
+      );
     }
 
     if (!allowedRoles.includes(req.user.role)) {
@@ -74,7 +95,10 @@ export const requireRole = (allowedRoles: UserRole[]): RequestHandler => {
       );
 
       return next(
-        new AppError('You do not have permission to perform this action.', 403)
+        new AppError(
+          'You do not have permission to perform this action.',
+          403
+        )
       );
     }
 

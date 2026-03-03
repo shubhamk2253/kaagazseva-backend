@@ -10,6 +10,9 @@ import { auditMiddleware } from './middleware/audit.middleware';
 import { errorMiddleware } from './middleware/error.middleware';
 import logger from './core/logger';
 
+// 🔁 Auto Escalation Cron (Phase 6B)
+import './jobs/autoEscalation.job';
+
 /**
  * KAAGAZSEVA - Express App Configuration
  * Central HTTP pipeline configuration.
@@ -17,29 +20,43 @@ import logger from './core/logger';
 
 const app: Application = express();
 
-/* =====================================================
-   GLOBAL SECURITY MIDDLEWARES
-===================================================== */
+///////////////////////////////////////////////////////////
+// GLOBAL SECURITY MIDDLEWARES
+///////////////////////////////////////////////////////////
 
 // 🛡 Security Headers
 app.use(helmet());
 
-// 🌍 CORS Configuration
+// 🌍 CORS Configuration (Production Safe)
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL || '*',
+    origin: process.env.FRONTEND_URL || true,
     credentials: true,
   })
 );
 
-// 🧾 Parse JSON & Cookies
+///////////////////////////////////////////////////////////
+// 🔐 RAZORPAY WEBHOOK RAW BODY (CRITICAL)
+// MUST BE BEFORE express.json()
+// DO NOT MOVE THIS BELOW
+///////////////////////////////////////////////////////////
+
+app.use(
+  '/api/v1/payments/webhook',
+  express.raw({ type: 'application/json' })
+);
+
+///////////////////////////////////////////////////////////
+// JSON & URL Parsing
+///////////////////////////////////////////////////////////
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
-/* =====================================================
-   LOGGING & REQUEST TRACING
-===================================================== */
+///////////////////////////////////////////////////////////
+// LOGGING & REQUEST TRACING
+///////////////////////////////////////////////////////////
 
 // 📌 Attach unique request ID
 app.use(requestIdMiddleware);
@@ -49,28 +66,41 @@ if (process.env.NODE_ENV !== 'production') {
   app.use(morgan('dev'));
 }
 
-/* =====================================================
-   API ROUTES
-===================================================== */
+///////////////////////////////////////////////////////////
+// HEALTH CHECK
+///////////////////////////////////////////////////////////
+
+app.get('/', (_req, res) => {
+  res.json({
+    status: 'success',
+    message: 'KaagazSeva Backend is Live 🚀',
+  });
+});
+
+///////////////////////////////////////////////////////////
+// API ROUTES
+///////////////////////////////////////////////////////////
 
 // Versioned API entry point
 app.use('/api/v1', routes);
 
-/* =====================================================
-   AUDIT LOGGER (State-Changing Operations)
-   Must be placed AFTER routes
-===================================================== */
+///////////////////////////////////////////////////////////
+// AUDIT LOGGER (State-Changing Operations)
+// Must be placed AFTER routes
+///////////////////////////////////////////////////////////
+
 app.use(auditMiddleware);
 
-/* =====================================================
-   GLOBAL ERROR HANDLER
-   Always last middleware
-===================================================== */
+///////////////////////////////////////////////////////////
+// GLOBAL ERROR HANDLER
+///////////////////////////////////////////////////////////
+
 app.use(errorMiddleware);
 
-/* =====================================================
-   UNCAUGHT REJECTION HANDLER (Extra Safety)
-===================================================== */
+///////////////////////////////////////////////////////////
+// PROCESS-LEVEL SAFETY HANDLERS
+///////////////////////////////////////////////////////////
+
 process.on('unhandledRejection', (reason) => {
   logger.error('Unhandled Rejection:', reason);
 });
@@ -80,9 +110,3 @@ process.on('uncaughtException', (error) => {
 });
 
 export default app;
-app.get('/', (req, res) => {
-  res.json({
-    status: 'success',
-    message: 'KaagazSeva Backend is Live 🚀',
-  });
-});

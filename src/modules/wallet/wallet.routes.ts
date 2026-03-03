@@ -85,7 +85,7 @@ router.post(
 router.post(
   '/withdraw/:id/approve',
   apiLimiter,
-  authorizeRoles('ADMIN'),
+  authorizeRoles('STATE_ADMIN'),
   validate(walletSchema.approveWithdrawal),
   WalletController.approveWithdrawal
 );
@@ -96,7 +96,7 @@ router.post(
 router.post(
   '/withdraw/:id/reject',
   apiLimiter,
-  authorizeRoles('ADMIN'),
+  authorizeRoles('STATE_ADMIN'),
   validate(walletSchema.rejectWithdrawal),
   WalletController.rejectWithdrawal
 );
