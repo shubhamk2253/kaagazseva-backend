@@ -3,12 +3,11 @@ import { prisma } from '../../config/database';
 import { redis } from '../../config/redis';
 import { ApplicationStatus } from '@prisma/client';
 import { AssignmentEngine } from './assignment.engine';
-import { AgentPriorityEngine } from './agent.priority.engine';
 import logger from '../../core/logger';
 
 /**
- * KAAGAZSEVA - Assignment Scheduler
- * Enterprise-safe (Redis distributed lock)
+ * KAAGAZSEVA - Assignment Escalation Scheduler
+ * Enterprise-safe with escalation ladder support
  */
 
 export class AssignmentScheduler {
@@ -19,8 +18,7 @@ export class AssignmentScheduler {
 
     cron.schedule('*/5 * * * *', async () => {
 
-      // 🔒 GLOBAL REDIS LOCK (60 sec safety)
-      const lock =await redis.set(
+      const lock = await redis.set(
         'assignment_scheduler_lock',
         'locked',
         'EX',
@@ -29,7 +27,7 @@ export class AssignmentScheduler {
       );
 
       if (!lock) {
-        return; // another instance already running
+        return;
       }
 
       try {
@@ -45,7 +43,6 @@ export class AssignmentScheduler {
           },
           select: {
             id: true,
-            agentId: true,
           },
         });
 
@@ -61,6 +58,8 @@ export class AssignmentScheduler {
 
           try {
 
+            let shouldReassign = false;
+
             await prisma.$transaction(async (tx) => {
 
               const current = await tx.application.findUnique({
@@ -74,7 +73,14 @@ export class AssignmentScheduler {
                 return;
               }
 
+              if (current.manualReview) {
+                return;
+              }
+
+              //////////////////////////////////////////////////////
               // 1️⃣ Penalize Agent
+              //////////////////////////////////////////////////////
+
               if (current.agentId) {
                 await tx.agentMetrics.update({
                   where: { agentId: current.agentId },
@@ -85,11 +91,44 @@ export class AssignmentScheduler {
                 });
               }
 
-              // 2️⃣ Reset Application
+              //////////////////////////////////////////////////////
+              // 2️⃣ Escalation Logic
+              //////////////////////////////////////////////////////
+
+              const nextLevel = current.escalationLevel + 1;
+
+              // Level 4 → Admin review
+              if (nextLevel >= 4) {
+
+                await tx.application.update({
+                  where: { id: app.id },
+                  data: {
+                    manualReview: true,
+                    agentId: null,
+                    escalationLevel: 4,
+                    status: ApplicationStatus.SUBMITTED,
+                    assignmentDeadline: null,
+                    assignedAt: null,
+                    acceptedAt: null,
+                  },
+                });
+
+                logger.warn(
+                  `🚨 Escalated to ADMIN review → ${app.id}`
+                );
+
+                return;
+              }
+
+              //////////////////////////////////////////////////////
+              // 3️⃣ Reset & Escalate
+              //////////////////////////////////////////////////////
+
               await tx.application.update({
                 where: { id: app.id },
                 data: {
                   agentId: null,
+                  escalationLevel: nextLevel,
                   status: ApplicationStatus.SUBMITTED,
                   assignmentDeadline: null,
                   assignedAt: null,
@@ -97,17 +136,13 @@ export class AssignmentScheduler {
                 },
               });
 
+              shouldReassign = true;
             });
 
-            // 3️⃣ Recalculate Agent Priority
-            if (app.agentId) {
-              await AgentPriorityEngine.recalculate(app.agentId);
+            if (shouldReassign) {
+              await AssignmentEngine.autoAssign(app.id);
+              logger.info(`♻ Reassigned application ${app.id}`);
             }
-
-            // 4️⃣ Reassign
-            await AssignmentEngine.autoAssign(app.id);
-
-            logger.info(`♻ Reassigned application ${app.id}`);
 
           } catch (singleError) {
             logger.error(
@@ -121,7 +156,6 @@ export class AssignmentScheduler {
       } catch (error) {
         logger.error('Assignment Scheduler Critical Error', error);
       } finally {
-        // 🔓 Always release global lock
         await redis.del('assignment_scheduler_lock');
       }
 

@@ -1,59 +1,67 @@
 import { z } from 'zod';
-import { ApplicationStatus } from '@prisma/client';
+import { ApplicationStatus, ServiceMode } from '@prisma/client';
 
 /**
  * KAAGAZSEVA - Application Validation Schemas
- * GovTech-grade validation for document workflows.
+ * Updated for DRAFT-first architecture
  */
 
-// ----------------------------
-// Document Entry Schema
-// ----------------------------
-const documentEntrySchema = z.object({
-  s3Key: z.string().min(1, 'S3 key is required'),
+// =====================================================
+// STATUS RULES
+// =====================================================
 
-  fileName: z
-    .string()
-    .min(1, 'Original filename is required')
-    .max(255, 'Filename too long'),
-
-  uploadedAt: z
-    .string()
-    .datetime({ message: 'uploadedAt must be valid ISO datetime' }),
-});
-
-// Explicitly type restricted statuses
 const statusesRequiringRemarks: ApplicationStatus[] = [
   ApplicationStatus.REJECTED,
   ApplicationStatus.DOCUMENT_REQUIRED,
 ];
 
-// ----------------------------
-// Main Schemas
-// ----------------------------
+// =====================================================
+// MAIN SCHEMAS
+// =====================================================
+
 export const applicationSchema = {
+
   /* =====================================================
-     1️⃣ Create Application
+     1️⃣ CREATE DRAFT
+     POST /applications/draft
   ===================================================== */
-  create: z.object({
+  createDraft: z.object({
     body: z.object({
-      serviceType: z
+
+      serviceId: z
+        .string()
+        .uuid('Invalid Service ID'),
+
+      district: z
         .string()
         .trim()
-        .min(3, 'Service type is required')
-        .max(50, 'Service type too long')
-        .transform((val) => val.toUpperCase()),
+        .min(2, 'District is required')
+        .max(100, 'District name too long'),
 
-      documents: z
-        .record(z.string(), documentEntrySchema)
-        .refine((docs) => Object.keys(docs).length > 0, {
-          message: 'At least one document must be uploaded',
-        }),
+      mode: z.nativeEnum(ServiceMode),
+
+      customerLat: z
+        .number()
+        .min(-90)
+        .max(90)
+        .optional(),
+
+      customerLng: z
+        .number()
+        .min(-180)
+        .max(180)
+        .optional(),
+
+      deliveryAddress: z
+        .string()
+        .trim()
+        .max(500)
+        .optional(),
     }),
   }),
 
   /* =====================================================
-     2️⃣ Update Status (Agent/Admin)
+     2️⃣ UPDATE STATUS (ADMIN / AGENT)
   ===================================================== */
   updateStatus: z.object({
     params: z.object({
@@ -85,10 +93,11 @@ export const applicationSchema = {
   }),
 
   /* =====================================================
-     3️⃣ Filter Applications (Dashboard)
+     3️⃣ FILTER APPLICATIONS (Dashboard)
   ===================================================== */
   filter: z.object({
     query: z.object({
+
       status: z.nativeEnum(ApplicationStatus).optional(),
 
       serviceType: z

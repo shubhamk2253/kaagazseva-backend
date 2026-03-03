@@ -2,24 +2,47 @@ import { ApplicationStatus, ServiceMode } from '@prisma/client';
 
 /**
  * KAAGAZSEVA - Application Module Types
- * Governs document workflows, lifecycle state, and dashboard queries.
+ * Founder-grade architecture
+ * Draft → Payment → Escrow → Assignment
  */
 
-/* -------------------------------------------------
-   1️⃣ Document Storage Structure (Matches Prisma JSON)
--------------------------------------------------- */
+/* =====================================================
+   1️⃣ DOCUMENT STRUCTURE (Stored as Prisma JSON)
+===================================================== */
 
 export interface ApplicationDocuments {
   [documentName: string]: {
-    s3Key: string;        // S3 object key
-    fileName: string;     // Original filename
-    uploadedAt: string;   // ISO string
+    s3Key: string;
+    fileName: string;
+    uploadedAt: string; // ISO string
   };
 }
 
-/* -------------------------------------------------
-   2️⃣ CREATE INPUT (Citizen submits application)
--------------------------------------------------- */
+/* =====================================================
+   2️⃣ CREATE DRAFT INPUT (PHASE 1 HARDENED)
+   - No manual district
+   - Pincode required
+   - StateId required
+===================================================== */
+
+export interface CreateDraftInput {
+  serviceId: string;
+  stateId: string;
+  pincode: string;
+  mode: ServiceMode;
+
+  customerLat?: number;
+  customerLng?: number;
+
+  deliveryAddress?: string;
+
+  documents?: ApplicationDocuments;
+}
+
+/* =====================================================
+   3️⃣ LEGACY CREATE INPUT (Kept for safety if needed)
+   ⚠️ Not recommended for frontend usage
+===================================================== */
 
 export interface CreateApplicationInput {
   serviceType: string;
@@ -38,18 +61,18 @@ export interface CreateApplicationInput {
   documents: ApplicationDocuments;
 }
 
-/* -------------------------------------------------
-   3️⃣ STATUS UPDATE INPUT (Agent/Admin)
--------------------------------------------------- */
+/* =====================================================
+   4️⃣ STATUS UPDATE INPUT (Agent/Admin)
+===================================================== */
 
 export interface UpdateApplicationStatusInput {
   status: ApplicationStatus;
   remarks?: string;
 }
 
-/* -------------------------------------------------
-   4️⃣ FILTERS (Dashboard / Pagination)
--------------------------------------------------- */
+/* =====================================================
+   5️⃣ FILTERS (Dashboard / Pagination)
+===================================================== */
 
 export interface ApplicationFilters {
   status?: ApplicationStatus;
@@ -61,9 +84,9 @@ export interface ApplicationFilters {
   limit?: number;
 }
 
-/* -------------------------------------------------
-   5️⃣ DATABASE RESPONSE MODEL
--------------------------------------------------- */
+/* =====================================================
+   6️⃣ DATABASE RESPONSE MODEL
+===================================================== */
 
 export interface ApplicationDetail {
   id: string;
@@ -106,9 +129,9 @@ export interface ApplicationDetail {
   updatedAt: Date;
 }
 
-/* -------------------------------------------------
-   6️⃣ PAGINATED RESPONSE (Dashboard Lists)
--------------------------------------------------- */
+/* =====================================================
+   7️⃣ PAGINATED RESPONSE
+===================================================== */
 
 export interface PaginatedApplicationResponse {
   applications: ApplicationDetail[];

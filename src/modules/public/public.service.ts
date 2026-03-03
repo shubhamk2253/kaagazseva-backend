@@ -93,4 +93,56 @@ export class PublicService {
       },
     });
   }
+
+  /* =====================================================
+     4️⃣ VALIDATE PINCODE
+     GET /api/v1/public/pincode-validate?pincode=xxxxxx
+  ===================================================== */
+  static async validatePincode(pincode: string) {
+
+    if (!pincode) {
+      throw new AppError('Pincode is required', 400);
+    }
+
+    // Validate 6-digit numeric format
+    const isValidFormat = /^[0-9]{6}$/.test(pincode);
+
+    if (!isValidFormat) {
+      throw new AppError('Invalid pincode format', 400);
+    }
+
+    const record = await prisma.pincode.findUnique({
+      where: {
+        code: pincode,
+      },
+      include: {
+        state: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+            isActive: true,
+          },
+        },
+      },
+    });
+
+    if (!record) {
+      throw new AppError('Pincode not found', 404);
+    }
+
+    if (!record.state.isActive) {
+      throw new AppError('State is inactive', 400);
+    }
+
+    return {
+      pincode: record.code,
+      district: record.district,
+      state: {
+        id: record.state.id,
+        name: record.state.name,
+        code: record.state.code,
+      },
+    };
+  }
 }

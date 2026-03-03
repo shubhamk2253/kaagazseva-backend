@@ -10,11 +10,14 @@ import { AppError } from '../../core/AppError';
 export class WalletRepository {
 
   /* =====================================================
-     Get Wallet By User
+     Get Wallet By User (Include User for Governance)
   ===================================================== */
   static async findByUserId(userId: string) {
     const wallet = await prisma.wallet.findUnique({
       where: { userId },
+      include: {
+        user: true, // 🔥 REQUIRED for withdrawal governance check
+      },
     });
 
     if (!wallet) {
@@ -39,7 +42,10 @@ export class WalletRepository {
 
     return prisma.$transaction(async (tx) => {
 
-      // 1️⃣ Idempotency check
+      //////////////////////////////////////////////////////
+      // 1️⃣ Idempotency Check
+      //////////////////////////////////////////////////////
+
       const existing = await tx.transaction.findFirst({
         where: { referenceId },
       });
@@ -48,7 +54,10 @@ export class WalletRepository {
         throw new AppError('Duplicate transaction detected', 409);
       }
 
-      // 2️⃣ Atomic decrement
+      //////////////////////////////////////////////////////
+      // 2️⃣ Atomic Balance Decrement
+      //////////////////////////////////////////////////////
+
       const result = await tx.wallet.updateMany({
         where: {
           userId,
@@ -63,16 +72,23 @@ export class WalletRepository {
         throw new AppError('Insufficient wallet balance', 400);
       }
 
-      // 3️⃣ Fetch updated wallet
+      //////////////////////////////////////////////////////
+      // 3️⃣ Fetch Updated Wallet
+      //////////////////////////////////////////////////////
+
       const wallet = await tx.wallet.findUnique({
         where: { userId },
+        include: { user: true },
       });
 
       if (!wallet) {
         throw new AppError('Wallet not found after debit', 500);
       }
 
-      // 4️⃣ Ledger entry (FIXED: use userId instead of walletId)
+      //////////////////////////////////////////////////////
+      // 4️⃣ Ledger Entry
+      //////////////////////////////////////////////////////
+
       const transaction = await tx.transaction.create({
         data: {
           userId,
@@ -102,6 +118,10 @@ export class WalletRepository {
 
     return prisma.$transaction(async (tx) => {
 
+      //////////////////////////////////////////////////////
+      // Idempotency Check (Optional)
+      //////////////////////////////////////////////////////
+
       if (referenceId) {
         const existing = await tx.transaction.findFirst({
           where: { referenceId },
@@ -112,6 +132,10 @@ export class WalletRepository {
         }
       }
 
+      //////////////////////////////////////////////////////
+      // Fetch Wallet
+      //////////////////////////////////////////////////////
+
       const wallet = await tx.wallet.findUnique({
         where: { userId },
       });
@@ -120,6 +144,10 @@ export class WalletRepository {
         throw new AppError('Wallet not found', 404);
       }
 
+      //////////////////////////////////////////////////////
+      // Increment Balance
+      //////////////////////////////////////////////////////
+
       const updatedWallet = await tx.wallet.update({
         where: { userId },
         data: {
@@ -127,7 +155,10 @@ export class WalletRepository {
         },
       });
 
-      // FIXED: userId instead of walletId
+      //////////////////////////////////////////////////////
+      // Ledger Entry
+      //////////////////////////////////////////////////////
+
       const transaction = await tx.transaction.create({
         data: {
           userId,

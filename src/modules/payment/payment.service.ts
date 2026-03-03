@@ -18,7 +18,7 @@ import { AssignmentEngine } from '../../modules/assignment/assignment.engine';
 export class PaymentService {
 
   //////////////////////////////////////////////////////
-  // 1️⃣ CREATE PAYMENT ORDER (LOCKED TO APPLICATION)
+  // 1️⃣ CREATE PAYMENT ORDER (PHASE 2 HARDENED)
   //////////////////////////////////////////////////////
 
   static async createPaymentOrder(
@@ -29,6 +29,10 @@ export class PaymentService {
     if (!userId || !applicationId) {
       throw new AppError('Missing required parameters', 400);
     }
+
+    //////////////////////////////////////////////////////
+    // 1️⃣ Fetch Application
+    //////////////////////////////////////////////////////
 
     const application = await prisma.application.findUnique({
       where: { id: applicationId },
@@ -49,6 +53,40 @@ export class PaymentService {
       );
     }
 
+    //////////////////////////////////////////////////////
+    // 2️⃣ Validate Mandatory Documents
+    //////////////////////////////////////////////////////
+
+    const service = await prisma.service.findFirst({
+      where: {
+        name: application.serviceType,
+      },
+    });
+
+    if (!service) {
+      throw new AppError('Service not found', 404);
+    }
+
+    const requiredDocs = await prisma.serviceRequiredDocument.findMany({
+      where: { serviceId: service.id },
+    });
+
+    const uploadedDocs =
+      (application.documents as Record<string, any>) || {};
+
+    for (const doc of requiredDocs) {
+      if (doc.isMandatory && !uploadedDocs[doc.documentName]) {
+        throw new AppError(
+          `Missing mandatory document: ${doc.documentName}`,
+          400
+        );
+      }
+    }
+
+    //////////////////////////////////////////////////////
+    // 3️⃣ Validate Amount
+    //////////////////////////////////////////////////////
+
     const amount = Number(application.totalAmount);
 
     if (!amount || amount <= 0) {
@@ -56,7 +94,7 @@ export class PaymentService {
     }
 
     //////////////////////////////////////////////////////
-    // Create Transaction
+    // 4️⃣ Create Transaction
     //////////////////////////////////////////////////////
 
     const transaction = await prisma.transaction.create({
@@ -195,7 +233,10 @@ export class PaymentService {
         throw new AppError('Payment already processed', 400);
       }
 
+      //////////////////////////////////////////////////////
       // 2️⃣ Update Application → SUBMITTED
+      //////////////////////////////////////////////////////
+
       await tx.application.update({
         where: { id: applicationId },
         data: {
@@ -205,7 +246,10 @@ export class PaymentService {
         },
       });
 
+      //////////////////////////////////////////////////////
       // 3️⃣ Create Escrow
+      //////////////////////////////////////////////////////
+
       const agentAmount =
         Number(application.agentCommission) +
         Number(application.deliveryFee);
@@ -222,7 +266,10 @@ export class PaymentService {
         },
       });
 
+      //////////////////////////////////////////////////////
       // 4️⃣ Escrow Hold Transaction
+      //////////////////////////////////////////////////////
+
       await tx.transaction.create({
         data: {
           userId: application.customerId,

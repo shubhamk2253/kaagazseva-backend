@@ -13,22 +13,18 @@ import {
 import { prisma } from '../../config/database';
 import logger from '../../core/logger';
 
-/**
- * KAAGAZSEVA - Application Service
- * Draft → Upload → Payment → Escrow → Assignment
- */
 export class ApplicationService {
 
   //////////////////////////////////////////////////////
-  // 1️⃣ CREATE DRAFT (NEW FLOW)
+  // 1️⃣ CREATE DRAFT (PINCODE LOCKED VERSION)
   //////////////////////////////////////////////////////
 
   static async createDraft(
     customerId: string,
     data: {
       serviceId: string;
-      state: string;
-      district: string;
+      stateId: string;
+      pincode: string;
       mode: ServiceMode;
       customerLat?: number;
       customerLng?: number;
@@ -36,21 +32,67 @@ export class ApplicationService {
     }
   ) {
 
+    //////////////////////////////////////////////////////
+    // 1️⃣ Validate Service
+    //////////////////////////////////////////////////////
+
     const service = await prisma.service.findUnique({
       where: { id: data.serviceId },
+      include: { state: true },
     });
 
     if (!service || !service.isActive) {
       throw new AppError('Invalid or inactive service', 400);
     }
 
-    const govtFee = service.govtFee;
+    //////////////////////////////////////////////////////
+    // 2️⃣ Validate Pincode Format
+    //////////////////////////////////////////////////////
+
+    if (!/^[0-9]{6}$/.test(data.pincode)) {
+      throw new AppError('Invalid pincode format', 400);
+    }
+
+    //////////////////////////////////////////////////////
+    // 3️⃣ Fetch Pincode From DB
+    //////////////////////////////////////////////////////
+
+    const pincodeRecord = await prisma.pincode.findUnique({
+      where: { code: data.pincode },
+      include: { state: true },
+    });
+
+    if (!pincodeRecord) {
+      throw new AppError('Pincode not found', 404);
+    }
+
+    //////////////////////////////////////////////////////
+    // 4️⃣ Cross-State Validation
+    //////////////////////////////////////////////////////
+
+    if (pincodeRecord.stateId !== service.stateId) {
+      throw new AppError(
+        'Selected service does not belong to this pincode state',
+        400
+      );
+    }
+
+    if (data.stateId !== service.stateId) {
+      throw new AppError(
+        'Selected state does not match service state',
+        400
+      );
+    }
+
+    //////////////////////////////////////////////////////
+    // 5️⃣ Pricing Engine (DB-driven govtFee)
+    //////////////////////////////////////////////////////
 
     let pricing;
 
     try {
       pricing = PricingEngine.calculate({
-        govtFee,
+        govtFee: service.govtFee,
         mode: data.mode,
         customerLat: data.customerLat,
         customerLng: data.customerLng,
@@ -59,12 +101,16 @@ export class ApplicationService {
       throw new AppError(error.message, 400);
     }
 
+    //////////////////////////////////////////////////////
+    // 6️⃣ Create Secure Draft
+    //////////////////////////////////////////////////////
+
     const draft = await ApplicationRepository.create({
 
       customer: { connect: { id: customerId } },
 
-      state: data.state,
-      district: data.district,
+      state: service.state.name,
+      district: pincodeRecord.district,
       serviceType: service.name,
       mode: data.mode,
 
@@ -82,6 +128,8 @@ export class ApplicationService {
 
       pricingSnapshot: {
         ...pricing,
+        pincode: data.pincode,
+        district: pincodeRecord.district,
         lockedAt: new Date().toISOString(),
       },
 
@@ -91,14 +139,21 @@ export class ApplicationService {
     });
 
     logger.info(
-      `Draft ${draft.id} created | Customer=${customerId}`
+      `Secure Draft ${draft.id} created | Customer=${customerId}`
     );
 
-    return draft;
+    return {
+      applicationId: draft.id,
+      district: pincodeRecord.district,
+      govtFee: pricing.govtFee,
+      serviceFee: pricing.serviceFee,
+      deliveryFee: pricing.deliveryFee,
+      totalAmount: pricing.totalAmount,
+    };
   }
 
   //////////////////////////////////////////////////////
-  // 2️⃣ ATTACH DOCUMENTS TO DRAFT
+  // 2️⃣ ATTACH DOCUMENTS (🔒 LOCKED AFTER PAYMENT)
   //////////////////////////////////////////////////////
 
   static async attachDocuments(
@@ -109,106 +164,44 @@ export class ApplicationService {
 
     const app = await ApplicationRepository.findById(applicationId);
 
-    if (!app) throw new AppError('Application not found', 404);
+    if (!app) {
+      throw new AppError('Application not found', 404);
+    }
 
     if (app.customerId !== customerId) {
       throw new AppError('Access denied', 403);
     }
 
+    //////////////////////////////////////////////////////
+    // 🔒 HARD LOCK: Only DRAFT allowed
+    //////////////////////////////////////////////////////
+
     if (app.status !== ApplicationStatus.DRAFT) {
       throw new AppError(
-        'Documents can only be uploaded to DRAFT application',
+        'Documents cannot be modified after payment initiation',
         400
       );
     }
 
-    const updated = await ApplicationRepository.update(
-      applicationId,
-      {
-        documents,
-      }
-    );
+    //////////////////////////////////////////////////////
+    // 🔐 Merge documents safely (prevent overwrite attack)
+    //////////////////////////////////////////////////////
 
-    return updated;
+    const existingDocs =
+      (app.documents as Record<string, any>) || {};
+
+    const mergedDocuments = {
+      ...existingDocs,
+      ...documents,
+    };
+
+    return ApplicationRepository.update(applicationId, {
+      documents: mergedDocuments,
+    });
   }
 
   //////////////////////////////////////////////////////
-  // LEGACY CREATE (KEEP SAFE)
-  //////////////////////////////////////////////////////
-
-  static async createApplication(
-    customerId: string,
-    data: CreateApplicationInput
-  ) {
-
-    const existing = await ApplicationRepository.findAll({
-      customerId,
-      status: ApplicationStatus.PENDING_PAYMENT,
-      serviceType: data.serviceType,
-      limit: 1,
-      page: 1,
-    });
-
-    if (existing.total > 0) {
-      throw new AppError(
-        `You already have a pending ${data.serviceType} application.`,
-        400
-      );
-    }
-
-    if (!data.govtFee || data.govtFee <= 0) {
-      throw new AppError('Invalid government fee', 400);
-    }
-
-    if (!data.mode) {
-      throw new AppError('Service mode required', 400);
-    }
-
-    let pricing;
-
-    try {
-      pricing = PricingEngine.calculate({
-        govtFee: data.govtFee,
-        mode: data.mode as ServiceMode,
-        customerLat: data.customerLat,
-        customerLng: data.customerLng,
-      });
-    } catch (error: any) {
-      throw new AppError(error.message, 400);
-    }
-
-    const application = await ApplicationRepository.create({
-
-      customer: { connect: { id: customerId } },
-
-      state: data.state,
-      district: data.district,
-      serviceType: data.serviceType,
-      mode: data.mode as ServiceMode,
-
-      documents: data.documents as any,
-
-      status: ApplicationStatus.PENDING_PAYMENT,
-
-      govtFee: pricing.govtFee,
-      serviceFee: pricing.serviceFee,
-      platformCommission: pricing.platformCommission,
-      agentCommission: pricing.agentCommission,
-      deliveryFee: pricing.deliveryFee,
-      totalAmount: pricing.totalAmount,
-      distanceKm: pricing.distanceKm ?? null,
-
-      pricingSnapshot: {
-        ...pricing,
-        lockedAt: new Date().toISOString(),
-      },
-    });
-
-    return application;
-  }
-
-  //////////////////////////////////////////////////////
-  // LIST
+  // 3️⃣ LIST
   //////////////////////////////////////////////////////
 
   static async listApplications(filters: ApplicationFilters) {
@@ -216,7 +209,7 @@ export class ApplicationService {
   }
 
   //////////////////////////////////////////////////////
-  // SECURE DETAIL VIEW
+  // 4️⃣ SECURE DETAIL VIEW
   //////////////////////////////////////////////////////
 
   static async getApplicationDetails(
@@ -230,7 +223,9 @@ export class ApplicationService {
 
     const isOwner = app.customerId === requestorId;
     const isAssignedAgent = app.agentId === requestorId;
-    const isAdmin = requestorRole === UserRole.ADMIN;
+    const isAdmin =requestorRole === UserRole.STATE_ADMIN ||
+    requestorRole === UserRole.DISTRICT_ADMIN ||
+    requestorRole === UserRole.FOUNDER;
 
     if (!isOwner && !isAssignedAgent && !isAdmin) {
       throw new AppError('Access denied to this application', 403);
@@ -240,7 +235,7 @@ export class ApplicationService {
   }
 
   //////////////////////////////////////////////////////
-  // STATUS UPDATE
+  // 5️⃣ STATUS UPDATE
   //////////////////////////////////////////////////////
 
   static async updateStatus(
@@ -261,10 +256,7 @@ export class ApplicationService {
       );
     }
 
-    const updated = await ApplicationRepository.update(
-      id,
-      updateData
-    );
+    const updated = await ApplicationRepository.update(id, updateData);
 
     logger.info(
       `Application ${id} moved to ${status} by ${updaterId}`

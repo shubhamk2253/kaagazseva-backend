@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { WalletController } from './wallet.controller';
-import { walletSchema } from './wallet.schema'; // ✅ FIXED (named import)
+import { walletSchema } from './wallet.schema';
 import { validate } from '../../middleware/validate.middleware';
 import { requireAuth } from '../../middleware/auth.middleware';
 import { authorizeRoles } from '../../middleware/role.middleware';
@@ -73,6 +73,32 @@ router.post(
   authorizeRoles('AGENT'),
   validate(walletSchema.withdraw),
   WalletController.withdraw
+);
+
+/* =====================================================
+   🏛 ADMIN WITHDRAWAL GOVERNANCE
+===================================================== */
+
+/**
+ * POST /api/v1/wallet/withdraw/:id/approve
+ */
+router.post(
+  '/withdraw/:id/approve',
+  apiLimiter,
+  authorizeRoles('ADMIN'),
+  validate(walletSchema.approveWithdrawal),
+  WalletController.approveWithdrawal
+);
+
+/**
+ * POST /api/v1/wallet/withdraw/:id/reject
+ */
+router.post(
+  '/withdraw/:id/reject',
+  apiLimiter,
+  authorizeRoles('ADMIN'),
+  validate(walletSchema.rejectWithdrawal),
+  WalletController.rejectWithdrawal
 );
 
 export default router;

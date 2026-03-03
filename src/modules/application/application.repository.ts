@@ -9,20 +9,26 @@ import { ApplicationFilters } from './application.types';
 export class ApplicationRepository {
 
   //////////////////////////////////////////////////////
+  // COMMON INCLUDE (Standardized Response Shape)
+  //////////////////////////////////////////////////////
+
+  private static readonly baseInclude = {
+    customer: {
+      select: { id: true, name: true, phoneNumber: true },
+    },
+    agent: {
+      select: { id: true, name: true, phoneNumber: true },
+    },
+  };
+
+  //////////////////////////////////////////////////////
   // CREATE
   //////////////////////////////////////////////////////
 
   static async create(data: Prisma.ApplicationCreateInput) {
     return prisma.application.create({
       data,
-      include: {
-        customer: {
-          select: { id: true, name: true, phoneNumber: true },
-        },
-        agent: {
-          select: { id: true, name: true, phoneNumber: true },
-        },
-      },
+      include: this.baseInclude,
     });
   }
 
@@ -33,14 +39,7 @@ export class ApplicationRepository {
   static async findById(id: string) {
     return prisma.application.findUnique({
       where: { id },
-      include: {
-        customer: {
-          select: { id: true, name: true, phoneNumber: true },
-        },
-        agent: {
-          select: { id: true, name: true, phoneNumber: true },
-        },
-      },
+      include: this.baseInclude,
     });
   }
 
@@ -49,6 +48,7 @@ export class ApplicationRepository {
   //////////////////////////////////////////////////////
 
   static async findAll(filters: ApplicationFilters) {
+
     const {
       status,
       serviceType,
@@ -81,14 +81,7 @@ export class ApplicationRepository {
         skip,
         take: safeLimit,
         orderBy: { updatedAt: 'desc' },
-        include: {
-          customer: {
-            select: { id: true, name: true, phoneNumber: true },
-          },
-          agent: {
-            select: { id: true, name: true, phoneNumber: true },
-          },
-        },
+        include: this.baseInclude,
       }),
       prisma.application.count({ where }),
     ]);
@@ -102,7 +95,7 @@ export class ApplicationRepository {
   }
 
   //////////////////////////////////////////////////////
-  // GENERIC UPDATE (🔥 REQUIRED BY SERVICE LAYER)
+  // GENERIC UPDATE
   //////////////////////////////////////////////////////
 
   static async update(
@@ -112,6 +105,7 @@ export class ApplicationRepository {
     return prisma.application.update({
       where: { id },
       data,
+      include: this.baseInclude,
     });
   }
 
@@ -130,6 +124,7 @@ export class ApplicationRepository {
         status,
         ...(agentId && { agentId }),
       },
+      include: this.baseInclude,
     });
   }
 }

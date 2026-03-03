@@ -14,7 +14,9 @@ datasource db {
 enum UserRole {
   CUSTOMER
   AGENT
-  ADMIN
+  DISTRICT_ADMIN
+  STATE_ADMIN
+  FOUNDER
 }
 
 enum ApplicationStatus {
@@ -47,6 +49,12 @@ enum TransactionType {
 enum ServiceMode {
   DIGITAL
   DOORSTEP
+}
+
+enum SuspensionStatus {
+  NONE
+  PENDING
+  CONFIRMED
 }
 
 enum WithdrawalStatus {
@@ -106,6 +114,12 @@ model User {
   role        UserRole @default(CUSTOMER)
   isActive    Boolean  @default(true)
 
+  suspensionStatus SuspensionStatus @default(NONE)
+  isSuspended      Boolean          @default(false)
+  suspensionReason String?
+  suspendedBy      String?
+  suspendedAt      DateTime?
+
   state     String?
   district  String?
   latitude  Float?
@@ -121,7 +135,10 @@ model User {
   escrowAsCustomer EscrowHolding[] @relation("EscrowCustomer")
   escrowAsAgent    EscrowHolding[] @relation("EscrowAgent")
 
-  withdrawals Withdrawal[]
+  withdrawals         WithdrawalRequest[] @relation("AgentWithdrawals")
+  approvedWithdrawals WithdrawalRequest[] @relation("ApprovedWithdrawals")
+  rejectedWithdrawals WithdrawalRequest[] @relation("RejectedWithdrawals")
+
   agentMetrics AgentMetrics?
 
   notifications Notification[]
@@ -145,11 +162,14 @@ model User {
 ///////////////////////////////////////////////////////
 
 model Wallet {
-  id      String  @id @default(uuid())
-  balance Decimal @default(0.0) @db.Decimal(12, 2)
+  id       String  @id @default(uuid())
+  balance  Decimal @default(0.0) @db.Decimal(12, 2)
+  isFrozen Boolean @default(false)
 
   userId String @unique
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  withdrawals WithdrawalRequest[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -205,6 +225,7 @@ model Application {
   riskScore       Int     @default(0)
   manualReview    Boolean @default(false)
   refundRequested Boolean @default(false)
+  escalationLevel Int     @default(1)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -266,20 +287,23 @@ model Transaction {
 // WITHDRAWAL
 ///////////////////////////////////////////////////////
 
-model Withdrawal {
-  id String @id @default(uuid())
+model WithdrawalRequest {
+  id              String   @id @default(uuid())
+  agentId         String
+  walletId        String
+  amount          Int
+  status          WithdrawalStatus
+  approvedBy      String?
+  rejectedBy      String?
+  approvedAt      DateTime?
+  rejectedAt      DateTime?
+  rejectionReason String?
+  createdAt       DateTime @default(now())
 
-  agentId String
-  agent   User @relation(fields: [agentId], references: [id], onDelete: Cascade)
-
-  amount Decimal @db.Decimal(12, 2)
-  status WithdrawalStatus @default(PENDING)
-
-  processedBy   String?
-  processedAt   DateTime?
-  failureReason String?
-
-  createdAt DateTime @default(now())
+  agent    User   @relation("AgentWithdrawals", fields: [agentId], references: [id], onDelete: Cascade)
+  wallet   Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  approver User?  @relation("ApprovedWithdrawals", fields: [approvedBy], references: [id])
+  rejector User?  @relation("RejectedWithdrawals", fields: [rejectedBy], references: [id])
 }
 
 ///////////////////////////////////////////////////////
@@ -296,8 +320,8 @@ model AgentMetrics {
   completedCases Int @default(0)
 
   rating         Float @default(5.0)
-  rejectionCount Int @default(0)
-  timeoutCount   Int @default(0)
+  rejectionCount Int   @default(0)
+  timeoutCount   Int   @default(0)
 
   priorityScore Float @default(0)
 
@@ -319,7 +343,7 @@ model Notification {
   message String
 
   metadata Json?
-  isRead Boolean @default(false)
+  isRead   Boolean @default(false)
 
   createdAt DateTime @default(now())
 }
@@ -360,6 +384,7 @@ model TicketResponse {
   user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   message String
+
   createdAt DateTime @default(now())
 }
 
@@ -403,6 +428,8 @@ model Otp {
   code      String
   expiresAt DateTime
   createdAt DateTime @default(now())
+
+  @@index([mobile])
 }
 
 ///////////////////////////////////////////////////////
@@ -416,6 +443,7 @@ model State {
   isActive Boolean @default(true)
 
   services Service[]
+  pincodes Pincode[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -446,4 +474,22 @@ model ServiceRequiredDocument {
   service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
+}
+
+///////////////////////////////////////////////////////
+// PINCODE MODEL (NEW)
+///////////////////////////////////////////////////////
+
+model Pincode {
+  id       String @id @default(uuid())
+  code     String @unique
+  district String
+
+  stateId String
+  state   State @relation(fields: [stateId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([code])
+  @@index([stateId])
 }

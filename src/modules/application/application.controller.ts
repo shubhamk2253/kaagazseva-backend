@@ -10,15 +10,15 @@ import logger from '../../core/logger';
 
 /**
  * KAAGAZSEVA - Application Controller
- * New Architecture:
- * 1️⃣ Draft Creation
- * 2️⃣ Document Upload
- * 3️⃣ Payment
+ * Correct Flow:
+ * 1️⃣ Draft Creation (Secure)
+ * 2️⃣ Upload Documents
+ * 3️⃣ Payment (separate module)
  */
 export class ApplicationController {
 
   //////////////////////////////////////////////////////
-  // 1️⃣ CREATE DRAFT
+  // 1️⃣ CREATE DRAFT (PHASE 1 HARDENED)
   // POST /api/v1/applications/draft
   //////////////////////////////////////////////////////
 
@@ -29,28 +29,48 @@ export class ApplicationController {
 
       const {
         serviceId,
-        state,
-        district,
+        stateId,
+        pincode,
         mode,
         customerLat,
         customerLng,
         deliveryAddress,
       } = req.body;
 
-      if (!serviceId || !state || !district || !mode) {
+      //////////////////////////////////////////////////////
+      // REQUIRED FIELD VALIDATION
+      //////////////////////////////////////////////////////
+
+      if (!serviceId || !stateId || !pincode || !mode) {
         throw new AppError('Missing required fields', 400);
       }
+
+      //////////////////////////////////////////////////////
+      // SERVICE MODE VALIDATION
+      //////////////////////////////////////////////////////
 
       if (!Object.values(ServiceMode).includes(mode)) {
         throw new AppError('Invalid service mode', 400);
       }
 
-      const draft = await ApplicationService.createDraft(
+      //////////////////////////////////////////////////////
+      // PINCODE FORMAT VALIDATION
+      //////////////////////////////////////////////////////
+
+      if (!/^[0-9]{6}$/.test(pincode)) {
+        throw new AppError('Invalid pincode format', 400);
+      }
+
+      //////////////////////////////////////////////////////
+      // CALL SERVICE LAYER
+      //////////////////////////////////////////////////////
+
+      const result = await ApplicationService.createDraft(
         userId,
         {
           serviceId,
-          state,
-          district,
+          stateId,
+          pincode,
           mode,
           customerLat,
           customerLng,
@@ -59,13 +79,13 @@ export class ApplicationController {
       );
 
       logger.info(
-        `Draft ${draft.id} created by ${userId} | RequestID=${req.requestId}`
+        `Draft created by ${userId} | Application=${result.applicationId} | RequestID=${req.requestId}`
       );
 
       return ApiResponse.success(
         res,
         'Draft created successfully',
-        draft,
+        result,
         201
       );
     }

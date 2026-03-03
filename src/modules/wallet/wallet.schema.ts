@@ -7,8 +7,9 @@ import { TransactionType, TransactionStatus } from '@prisma/client';
  */
 
 export const walletSchema = {
+
   /* ==========================================
-     1️⃣ Top-up Wallet (Citizen adds money)
+     1️⃣ Top-up Wallet
   ========================================== */
   topUp: z.object({
     body: z.object({
@@ -33,7 +34,7 @@ export const walletSchema = {
   }),
 
   /* ==========================================
-     2️⃣ Process Service Payment (Debit Wallet)
+     2️⃣ Process Service Payment
   ========================================== */
   processPayment: z.object({
     body: z.object({
@@ -49,7 +50,7 @@ export const walletSchema = {
   }),
 
   /* ==========================================
-     3️⃣ Withdrawal (Agent Only)
+     3️⃣ Withdrawal (Agent)
   ========================================== */
   withdraw: z.object({
     body: z.object({
@@ -62,7 +63,31 @@ export const walletSchema = {
   }),
 
   /* ==========================================
-     4️⃣ Transaction Filtering
+     4️⃣ ADMIN - Approve Withdrawal
+  ========================================== */
+  approveWithdrawal: z.object({
+    params: z.object({
+      id: z.string().uuid('Invalid withdrawal request ID'),
+    }),
+  }),
+
+  /* ==========================================
+     5️⃣ ADMIN - Reject Withdrawal
+  ========================================== */
+  rejectWithdrawal: z.object({
+    params: z.object({
+      id: z.string().uuid('Invalid withdrawal request ID'),
+    }),
+    body: z.object({
+      reason: z
+        .string()
+        .min(5, 'Rejection reason must be at least 5 characters')
+        .max(500, 'Rejection reason too long'),
+    }),
+  }),
+
+  /* ==========================================
+     6️⃣ Transaction Filtering
   ========================================== */
   filterTransactions: z.object({
     query: z.object({

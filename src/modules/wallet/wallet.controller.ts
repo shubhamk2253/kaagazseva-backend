@@ -3,6 +3,8 @@ import { WalletService } from './wallet.service';
 import { asyncHandler } from '../../core/asyncHandler';
 import { ApiResponse } from '../../core/ApiResponse';
 import { RequestWithUser } from '../../core/types';
+import { AppError } from '../../core/AppError';
+import { UserRole } from '@prisma/client';
 
 /**
  * KAAGAZSEVA - Wallet Controller
@@ -12,7 +14,6 @@ export class WalletController {
 
   /* =====================================================
      GET Balance
-     GET /api/v1/wallet/balance
   ===================================================== */
   static getBalance = asyncHandler(
     async (req: RequestWithUser, res: Response) => {
@@ -30,7 +31,6 @@ export class WalletController {
 
   /* =====================================================
      GET Transaction History
-     GET /api/v1/wallet/transactions?page=1&limit=10
   ===================================================== */
   static getTransactions = asyncHandler(
     async (req: RequestWithUser, res: Response) => {
@@ -51,7 +51,6 @@ export class WalletController {
 
   /* =====================================================
      POST Top-Up
-     POST /api/v1/wallet/topup
   ===================================================== */
   static topUp = asyncHandler(
     async (req: RequestWithUser, res: Response) => {
@@ -77,7 +76,6 @@ export class WalletController {
 
   /* =====================================================
      POST Pay For Service
-     POST /api/v1/wallet/pay
   ===================================================== */
   static payForService = asyncHandler(
     async (req: RequestWithUser, res: Response) => {
@@ -101,13 +99,11 @@ export class WalletController {
   );
 
   /* =====================================================
-     POST Withdrawal
-     POST /api/v1/wallet/withdraw
+     POST Withdrawal Request (Agent)
   ===================================================== */
   static withdraw = asyncHandler(
     async (req: RequestWithUser, res: Response) => {
       const userId = req.user!.userId;
-
       const { amountInPaise } = req.body;
 
       const result = await WalletService.withdraw(
@@ -118,6 +114,62 @@ export class WalletController {
       return ApiResponse.success(
         res,
         'Withdrawal request submitted successfully',
+        result
+      );
+    }
+  );
+
+  /* =====================================================
+     ADMIN - Approve Withdrawal
+     POST /api/v1/wallet/withdraw/:id/approve
+  ===================================================== */
+  static approveWithdrawal = asyncHandler(
+    async (req: RequestWithUser, res: Response) => {
+
+      if (req.user!.role !== UserRole.ADMIN) {
+        throw new AppError('Unauthorized action', 403);
+      }
+
+      const { id } = req.params;
+      const adminId = req.user!.userId;
+
+      const result = await WalletService.approveWithdrawal(
+        id,
+        adminId
+      );
+
+      return ApiResponse.success(
+        res,
+        'Withdrawal approved successfully',
+        result
+      );
+    }
+  );
+
+  /* =====================================================
+     ADMIN - Reject Withdrawal
+     POST /api/v1/wallet/withdraw/:id/reject
+  ===================================================== */
+  static rejectWithdrawal = asyncHandler(
+    async (req: RequestWithUser, res: Response) => {
+
+      if (req.user!.role !== UserRole.ADMIN) {
+        throw new AppError('Unauthorized action', 403);
+      }
+
+      const { id } = req.params;
+      const { reason } = req.body;
+      const adminId = req.user!.userId;
+
+      const result = await WalletService.rejectWithdrawal(
+        id,
+        reason,
+        adminId
+      );
+
+      return ApiResponse.success(
+        res,
+        'Withdrawal rejected successfully',
         result
       );
     }
