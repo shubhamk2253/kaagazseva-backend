@@ -122,7 +122,6 @@ model User {
   escrowAsAgent    EscrowHolding[] @relation("EscrowAgent")
 
   withdrawals Withdrawal[]
-
   agentMetrics AgentMetrics?
 
   notifications Notification[]
@@ -187,10 +186,10 @@ model Application {
   escrow EscrowHolding?
 
   customerId String
-  customer   User   @relation("CustomerApplications", fields: [customerId], references: [id], onDelete: Cascade)
+  customer   User @relation("CustomerApplications", fields: [customerId], references: [id], onDelete: Cascade)
 
   agentId String?
-  agent   User?   @relation("AgentApplications", fields: [agentId], references: [id])
+  agent   User? @relation("AgentApplications", fields: [agentId], references: [id])
 
   assignmentDeadline DateTime?
   assignedAt         DateTime?
@@ -213,36 +212,32 @@ model Application {
   @@index([customerId])
   @@index([agentId])
   @@index([status])
-  @@index([assignmentDeadline])
 }
 
 ///////////////////////////////////////////////////////
-// ESCROW HOLDING
+// ESCROW
 ///////////////////////////////////////////////////////
 
 model EscrowHolding {
   id String @id @default(uuid())
 
-  applicationId String      @unique
+  applicationId String @unique
   application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
   customerId String
-  customer   User   @relation("EscrowCustomer", fields: [customerId], references: [id], onDelete: Cascade)
+  customer   User @relation("EscrowCustomer", fields: [customerId], references: [id], onDelete: Cascade)
 
   agentId String?
-  agent   User?   @relation("EscrowAgent", fields: [agentId], references: [id])
+  agent   User? @relation("EscrowAgent", fields: [agentId], references: [id])
 
   totalAmount    Decimal @db.Decimal(12, 2)
   platformAmount Decimal @db.Decimal(12, 2)
   agentAmount    Decimal @db.Decimal(12, 2)
 
-  isReleased Boolean   @default(false)
+  isReleased Boolean @default(false)
   releasedAt DateTime?
 
   createdAt DateTime @default(now())
-
-  @@index([customerId])
-  @@index([agentId])
 }
 
 ///////////////////////////////////////////////////////
@@ -262,35 +257,9 @@ model Transaction {
   metadata    Json?
 
   userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
-
-  @@index([userId])
-  @@index([status])
-  @@index([type])
-}
-
-///////////////////////////////////////////////////////
-// AGENT METRICS
-///////////////////////////////////////////////////////
-
-model AgentMetrics {
-  id String @id @default(uuid())
-
-  agentId String @unique
-  agent   User   @relation(fields: [agentId], references: [id], onDelete: Cascade)
-
-  activeCases    Int @default(0)
-  completedCases Int @default(0)
-
-  rating         Float @default(5.0)
-  rejectionCount Int   @default(0)
-  timeoutCount   Int   @default(0)
-
-  priorityScore Float @default(0)
-
-  updatedAt DateTime @updatedAt
 }
 
 ///////////////////////////////////////////////////////
@@ -301,9 +270,9 @@ model Withdrawal {
   id String @id @default(uuid())
 
   agentId String
-  agent   User   @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  agent   User @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
-  amount Decimal          @db.Decimal(12, 2)
+  amount Decimal @db.Decimal(12, 2)
   status WithdrawalStatus @default(PENDING)
 
   processedBy   String?
@@ -311,9 +280,28 @@ model Withdrawal {
   failureReason String?
 
   createdAt DateTime @default(now())
+}
 
-  @@index([agentId])
-  @@index([status])
+///////////////////////////////////////////////////////
+// AGENT METRICS
+///////////////////////////////////////////////////////
+
+model AgentMetrics {
+  id String @id @default(uuid())
+
+  agentId String @unique
+  agent   User @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  activeCases    Int @default(0)
+  completedCases Int @default(0)
+
+  rating         Float @default(5.0)
+  rejectionCount Int @default(0)
+  timeoutCount   Int @default(0)
+
+  priorityScore Float @default(0)
+
+  updatedAt DateTime @updatedAt
 }
 
 ///////////////////////////////////////////////////////
@@ -324,24 +312,20 @@ model Notification {
   id String @id @default(uuid())
 
   userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   type    NotificationType
   title   String
   message String
 
   metadata Json?
-
   isRead Boolean @default(false)
 
   createdAt DateTime @default(now())
-
-  @@index([userId])
-  @@index([isRead])
 }
 
 ///////////////////////////////////////////////////////
-// TICKET
+// TICKET SYSTEM
 ///////////////////////////////////////////////////////
 
 model Ticket {
@@ -355,19 +339,15 @@ model Ticket {
   category TicketCategory
 
   createdById String
-  createdBy   User   @relation("CreatedTickets", fields: [createdById], references: [id], onDelete: Cascade)
+  createdBy   User @relation("CreatedTickets", fields: [createdById], references: [id], onDelete: Cascade)
 
   assignedToId String?
-  assignedTo   User?   @relation("AssignedTickets", fields: [assignedToId], references: [id])
+  assignedTo   User? @relation("AssignedTickets", fields: [assignedToId], references: [id])
 
   responses TicketResponse[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
-  @@index([createdById])
-  @@index([assignedToId])
-  @@index([status])
 }
 
 model TicketResponse {
@@ -377,14 +357,10 @@ model TicketResponse {
   ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
 
   userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   message String
-
   createdAt DateTime @default(now())
-
-  @@index([ticketId])
-  @@index([userId])
 }
 
 ///////////////////////////////////////////////////////
@@ -395,7 +371,7 @@ model AuditLog {
   id String @id @default(uuid())
 
   userId String?
-  user   User?   @relation(fields: [userId], references: [id])
+  user   User? @relation(fields: [userId], references: [id])
 
   action       AuditAction
   resourceType String
@@ -415,11 +391,6 @@ model AuditLog {
   success Boolean @default(true)
 
   createdAt DateTime @default(now())
-
-  @@index([userId])
-  @@index([action])
-  @@index([resourceType])
-  @@index([createdAt])
 }
 
 ///////////////////////////////////////////////////////
@@ -432,12 +403,10 @@ model Otp {
   code      String
   expiresAt DateTime
   createdAt DateTime @default(now())
-
-  @@index([mobile])
 }
 
 ///////////////////////////////////////////////////////
-// PUBLIC SERVICE STRUCTURE
+// PUBLIC STRUCTURE
 ///////////////////////////////////////////////////////
 
 model State {
@@ -447,6 +416,9 @@ model State {
   isActive Boolean @default(true)
 
   services Service[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Service {
@@ -457,9 +429,12 @@ model Service {
   isActive    Boolean @default(true)
 
   stateId String
-  state   State  @relation(fields: [stateId], references: [id])
+  state   State @relation(fields: [stateId], references: [id], onDelete: Cascade)
 
   documents ServiceRequiredDocument[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model ServiceRequiredDocument {
@@ -468,5 +443,7 @@ model ServiceRequiredDocument {
   isMandatory  Boolean @default(true)
 
   serviceId String
-  service   Service @relation(fields: [serviceId], references: [id])
+  service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
 }

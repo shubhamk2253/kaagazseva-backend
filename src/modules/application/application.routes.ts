@@ -11,8 +11,9 @@ import { z } from 'zod';
 const router = Router();
 
 /* =====================================================
-   Dedicated ID Param Validation
+   PARAM VALIDATION
 ===================================================== */
+
 const idParamSchema = z.object({
   params: z.object({
     id: z.string().uuid('Invalid Application ID'),
@@ -20,42 +21,49 @@ const idParamSchema = z.object({
 });
 
 /* =====================================================
-   All application routes require authentication
+   ALL ROUTES REQUIRE AUTH
 ===================================================== */
+
 router.use(requireAuth);
 
-/* =====================================================
-   CITIZEN ROUTES
-===================================================== */
+////////////////////////////////////////////////////////
+// 🔹 STEP 1 — CREATE DRAFT
+// POST /api/v1/applications/draft
+////////////////////////////////////////////////////////
 
-/**
- * POST /api/v1/applications
- * Upload documents + create application
- */
 router.post(
-  '/',
+  '/draft',
   apiLimiter,
-  upload.array('documents', 5), // max 5 files
-  ApplicationController.apply
+  ApplicationController.createDraft
 );
 
-/**
- * GET /api/v1/applications/me
- */
+////////////////////////////////////////////////////////
+// 🔹 STEP 2 — UPLOAD DOCUMENTS TO EXISTING DRAFT
+// POST /api/v1/applications/:id/documents
+////////////////////////////////////////////////////////
+
+router.post(
+  '/:id/documents',
+  apiLimiter,
+  validate(idParamSchema),
+  upload.array('documents', 5),
+  ApplicationController.uploadDocuments
+);
+
+////////////////////////////////////////////////////////
+// 🔹 CUSTOMER ROUTES
+////////////////////////////////////////////////////////
+
 router.get(
   '/me',
   validate(applicationSchema.filter),
   ApplicationController.getMyApplications
 );
 
-/* =====================================================
-   STAFF DASHBOARD ROUTE
-===================================================== */
+////////////////////////////////////////////////////////
+// 🔹 STAFF DASHBOARD LIST
+////////////////////////////////////////////////////////
 
-/**
- * GET /api/v1/applications
- * Admin / Agent listing
- */
 router.get(
   '/',
   authorizeRoles('ADMIN', 'AGENT'),
@@ -63,26 +71,20 @@ router.get(
   ApplicationController.listApplications
 );
 
-/* =====================================================
-   SHARED ROUTES
-===================================================== */
+////////////////////////////////////////////////////////
+// 🔹 SHARED DETAIL VIEW
+////////////////////////////////////////////////////////
 
-/**
- * GET /api/v1/applications/:id
- */
 router.get(
   '/:id',
   validate(idParamSchema),
   ApplicationController.getDetails
 );
 
-/* =====================================================
-   STAFF STATUS UPDATE
-===================================================== */
+////////////////////////////////////////////////////////
+// 🔹 STATUS UPDATE (ADMIN / AGENT)
+////////////////////////////////////////////////////////
 
-/**
- * PATCH /api/v1/applications/:id/status
- */
 router.patch(
   '/:id/status',
   apiLimiter,

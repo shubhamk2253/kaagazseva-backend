@@ -9,6 +9,10 @@
  * - 25/75 commission rule
  * - ₹30 minimum platform protection
  * - Delivery integration (25 KM cap via DistanceUtil)
+ *
+ * IMPORTANT:
+ * - Draft stage does NOT require agent coordinates.
+ * - Delivery is fully validated during assignment stage.
  */
 
 import { DistanceUtil } from '../delivery/distance.util';
@@ -72,7 +76,7 @@ export class PricingEngine {
     );
 
     /////////////////////////////////////////////////////
-    // 3️⃣ DELIVERY (via DistanceUtil)
+    // 3️⃣ DELIVERY (Optional in Draft Stage)
     /////////////////////////////////////////////////////
 
     let deliveryFee = 0;
@@ -80,28 +84,29 @@ export class PricingEngine {
 
     if (mode === 'DOORSTEP') {
 
+      // If agent coordinates are not provided (draft stage),
+      // we only estimate later during assignment.
       if (
-        input.customerLat === undefined ||
-        input.customerLng === undefined ||
-        input.agentLat === undefined ||
-        input.agentLng === undefined
+        input.customerLat !== undefined &&
+        input.customerLng !== undefined &&
+        input.agentLat !== undefined &&
+        input.agentLng !== undefined
       ) {
-        throw new Error('Location coordinates required for doorstep');
+
+        const result = DistanceUtil.evaluateDoorstep(
+          input.customerLat,
+          input.customerLng,
+          input.agentLat,
+          input.agentLng
+        );
+
+        if (!result.isWithinServiceRadius) {
+          throw new Error('Doorstep service not available beyond 25 KM');
+        }
+
+        distanceKm = result.distanceKm;
+        deliveryFee = result.deliveryFee;
       }
-
-      const result = DistanceUtil.evaluateDoorstep(
-        input.customerLat,
-        input.customerLng,
-        input.agentLat,
-        input.agentLng
-      );
-
-      if (!result.isWithinServiceRadius) {
-        throw new Error('Doorstep service not available beyond 25 KM');
-      }
-
-      distanceKm = result.distanceKm;
-      deliveryFee = result.deliveryFee;
     }
 
     /////////////////////////////////////////////////////

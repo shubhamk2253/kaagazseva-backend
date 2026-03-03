@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
-import { RazorpayProvider } from './razorpay.provider';
 import { prisma } from '../../config/database';
+import { RazorpayProvider } from './razorpay.provider';
 import { AppError } from '../../core/AppError';
 import {
   TransactionStatus,
@@ -11,27 +11,53 @@ import logger from '../../core/logger';
 import { AssignmentEngine } from '../../modules/assignment/assignment.engine';
 
 /**
- * KAAGAZSEVA - Payment Business Logic (Escrow Integrated)
+ * KAAGAZSEVA - Secure Application-Locked Payment Service
+ * Flow:
+ * DRAFT → PENDING_PAYMENT → SUBMITTED → Escrow → Assignment
  */
 export class PaymentService {
 
   //////////////////////////////////////////////////////
-  // 1️⃣ CREATE PAYMENT ORDER
+  // 1️⃣ CREATE PAYMENT ORDER (LOCKED TO APPLICATION)
   //////////////////////////////////////////////////////
 
   static async createPaymentOrder(
     userId: string,
-    amount: number,
-    metadata: Record<string, unknown> = {}
+    applicationId: string
   ) {
 
-    if (!userId) {
-      throw new AppError('User ID is required', 400);
+    if (!userId || !applicationId) {
+      throw new AppError('Missing required parameters', 400);
     }
 
-    if (!amount || amount <= 0) {
-      throw new AppError('Invalid payment amount', 400);
+    const application = await prisma.application.findUnique({
+      where: { id: applicationId },
+    });
+
+    if (!application) {
+      throw new AppError('Application not found', 404);
     }
+
+    if (application.customerId !== userId) {
+      throw new AppError('Access denied', 403);
+    }
+
+    if (application.status !== ApplicationStatus.DRAFT) {
+      throw new AppError(
+        'Payment can only be initiated for DRAFT applications',
+        400
+      );
+    }
+
+    const amount = Number(application.totalAmount);
+
+    if (!amount || amount <= 0) {
+      throw new AppError('Invalid payable amount', 400);
+    }
+
+    //////////////////////////////////////////////////////
+    // Create Transaction
+    //////////////////////////////////////////////////////
 
     const transaction = await prisma.transaction.create({
       data: {
@@ -39,7 +65,9 @@ export class PaymentService {
         amount,
         type: TransactionType.DEBIT,
         status: TransactionStatus.PENDING,
-        metadata: metadata as Prisma.InputJsonValue,
+        metadata: {
+          applicationId,
+        } as Prisma.InputJsonValue,
       },
     });
 
@@ -53,6 +81,17 @@ export class PaymentService {
       await prisma.transaction.update({
         where: { id: transaction.id },
         data: { gatewayOrderId: razorpayOrder.id },
+      });
+
+      //////////////////////////////////////////////////////
+      // Move Application → PENDING_PAYMENT
+      //////////////////////////////////////////////////////
+
+      await prisma.application.update({
+        where: { id: applicationId },
+        data: {
+          status: ApplicationStatus.PENDING_PAYMENT,
+        },
       });
 
       return {
@@ -99,7 +138,6 @@ export class PaymentService {
       throw new AppError('Transaction not found', 404);
     }
 
-    // Prevent duplicate processing
     if (existingTransaction.status === TransactionStatus.SUCCESS) {
       return { message: 'Already processed' };
     }
@@ -124,7 +162,7 @@ export class PaymentService {
     }
 
     //////////////////////////////////////////////////////
-    // 🔒 ENTERPRISE ATOMIC BLOCK
+    // 🔒 ATOMIC TRANSACTION
     //////////////////////////////////////////////////////
 
     const result = await prisma.$transaction(async (tx) => {
@@ -153,16 +191,11 @@ export class PaymentService {
         throw new AppError('Application not found', 404);
       }
 
-      // Prevent duplicate escrow
-      const existingEscrow = await tx.escrowHolding.findUnique({
-        where: { applicationId },
-      });
-
-      if (existingEscrow) {
-        throw new AppError('Escrow already exists', 400);
+      if (application.paymentStatus === TransactionStatus.SUCCESS) {
+        throw new AppError('Payment already processed', 400);
       }
 
-      // 2️⃣ Update Application
+      // 2️⃣ Update Application → SUBMITTED
       await tx.application.update({
         where: { id: applicationId },
         data: {
@@ -172,12 +205,11 @@ export class PaymentService {
         },
       });
 
-      // Convert Decimal safely
+      // 3️⃣ Create Escrow
       const agentAmount =
         Number(application.agentCommission) +
         Number(application.deliveryFee);
 
-      // 3️⃣ Create Escrow
       const escrow = await tx.escrowHolding.create({
         data: {
           applicationId,
@@ -185,12 +217,12 @@ export class PaymentService {
           agentId: application.agentId ?? null,
           totalAmount: application.totalAmount,
           platformAmount: application.platformCommission,
-          agentAmount: agentAmount,
+          agentAmount,
           isReleased: false,
         },
       });
 
-      // 4️⃣ Create ESCROW_HOLD Transaction
+      // 4️⃣ Escrow Hold Transaction
       await tx.transaction.create({
         data: {
           userId: application.customerId,
@@ -208,7 +240,7 @@ export class PaymentService {
     });
 
     //////////////////////////////////////////////////////
-    // 🚀 Trigger Assignment (outside transaction)
+    // 🚀 Auto Assignment
     //////////////////////////////////////////////////////
 
     try {

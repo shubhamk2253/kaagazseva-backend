@@ -1,46 +1,61 @@
-import { Request, Response } from 'express';
-import { prisma } from '../../config/database';
+import { Response } from 'express';
+import { PublicService } from './public.service';
+import { asyncHandler } from '../../core/asyncHandler';
+import { ApiResponse } from '../../core/ApiResponse';
+import { Request } from 'express';
 
 export class PublicController {
 
-  static async getStates(req: Request, res: Response) {
-    const states = await prisma.state.findMany({
-      where: { isActive: true },
-      orderBy: { name: 'asc' },
-    });
+  /* =====================================================
+     GET /api/v1/public/states
+  ===================================================== */
+  static getStates = asyncHandler(async (_req: Request, res: Response) => {
 
-    return res.json({ success: true, data: states });
-  }
+    const states = await PublicService.getActiveStates();
 
-  static async getServicesByState(req: Request, res: Response) {
-    const { stateId } = req.query;
+    return ApiResponse.success(
+      res,
+      'States retrieved successfully',
+      states
+    );
+  });
 
-    if (!stateId) {
-      return res.status(400).json({
-        success: false,
-        message: 'stateId is required',
-      });
+  /* =====================================================
+     GET /api/v1/public/services?stateId=xxx
+  ===================================================== */
+  static getServicesByState = asyncHandler(
+    async (req: Request, res: Response) => {
+
+      const { stateId } = req.query;
+
+      const services = await PublicService.getServicesByState(
+        String(stateId)
+      );
+
+      return ApiResponse.success(
+        res,
+        'Services retrieved successfully',
+        services
+      );
     }
+  );
 
-    const services = await prisma.service.findMany({
-      where: {
-        stateId: String(stateId),
-        isActive: true,
-      },
-      orderBy: { name: 'asc' },
-    });
+  /* =====================================================
+     GET /api/v1/public/services/:id/documents
+  ===================================================== */
+  static getServiceDocuments = asyncHandler(
+    async (req: Request, res: Response) => {
 
-    return res.json({ success: true, data: services });
-  }
+      const { id } = req.params;
 
-  static async getServiceDocuments(req: Request, res: Response) {
-    const { id } = req.params;
+      const documents =
+        await PublicService.getServiceDocuments(id);
 
-    const documents = await prisma.serviceRequiredDocument.findMany({
-      where: { serviceId: id },
-      orderBy: { documentName: 'asc' },
-    });
-
-    return res.json({ success: true, data: documents });
-  }
+      return ApiResponse.success(
+        res,
+        'Service documents retrieved successfully',
+        documents
+      );
+    }
+  );
 }

@@ -6,7 +6,8 @@ import walletRoutes from '../modules/wallet/wallet.routes';
 import adminRoutes from '../modules/admin/admin.routes';
 import ticketRoutes from '../modules/ticket/ticket.routes';
 import notificationRoutes from '../modules/notification/notification.routes';
-import otpRoutes from './otp.routes'; // ✅ OTP ROUTES IMPORTED
+import otpRoutes from './otp.routes';
+import publicRoutes from '../modules/public/public.routes';
 import { ApiResponse } from '../core/ApiResponse';
 
 /**
@@ -16,38 +17,49 @@ import { ApiResponse } from '../core/ApiResponse';
 
 const router = Router();
 
-/* =====================================================
-   PUBLIC AUTH ROUTES
-===================================================== */
+///////////////////////////////////////////////////////
+// PUBLIC SERVICE ROUTES (NO AUTH)
+///////////////////////////////////////////////////////
+
+router.use('/public', publicRoutes);
+
+///////////////////////////////////////////////////////
+// PUBLIC AUTH ROUTES
+///////////////////////////////////////////////////////
+
 router.use('/auth', authRoutes);
 
-/* =====================================================
-   OTP ROUTES (MSG91 Integration)
-===================================================== */
+///////////////////////////////////////////////////////
+// OTP ROUTES
+///////////////////////////////////////////////////////
+
 router.use('/otp', otpRoutes);
 
-/* =====================================================
-   USER & CORE MODULES
-===================================================== */
+///////////////////////////////////////////////////////
+// CORE USER MODULES
+///////////////////////////////////////////////////////
+
 router.use('/users', userRoutes);
 router.use('/applications', applicationRoutes);
 router.use('/wallet', walletRoutes);
 
-/* =====================================================
-   SUPPORT & COMMUNICATION
-===================================================== */
+///////////////////////////////////////////////////////
+// SUPPORT & COMMUNICATION
+///////////////////////////////////////////////////////
+
 router.use('/tickets', ticketRoutes);
 router.use('/notifications', notificationRoutes);
 
-/* =====================================================
-   ADMIN PANEL
-===================================================== */
+///////////////////////////////////////////////////////
+// ADMIN PANEL
+///////////////////////////////////////////////////////
+
 router.use('/admin', adminRoutes);
 
-/* =====================================================
-   SYSTEM HEALTH CHECK
-   Used by Render, uptime monitors, load balancers
-===================================================== */
+///////////////////////////////////////////////////////
+// SYSTEM HEALTH CHECK
+///////////////////////////////////////////////////////
+
 router.get('/health', (req, res) => {
   return ApiResponse.success(res, 'System healthy', {
     status: 'healthy',
@@ -58,9 +70,10 @@ router.get('/health', (req, res) => {
   });
 });
 
-/* =====================================================
-   404 FALLBACK
-===================================================== */
+///////////////////////////////////////////////////////
+// 404 FALLBACK
+///////////////////////////////////////////////////////
+
 router.use('*', (req, res) => {
   return res.status(404).json({
     success: false,

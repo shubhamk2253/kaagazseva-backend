@@ -1,5 +1,4 @@
 import { ApplicationRepository } from './application.repository';
-import { StorageService } from '../../infrastructure/storage/storage.service';
 import { PricingEngine } from '../pricing/pricing.engine';
 import { AppError } from '../../core/AppError';
 import {
@@ -11,26 +10,136 @@ import {
   ApplicationFilters,
   CreateApplicationInput,
 } from './application.types';
+import { prisma } from '../../config/database';
 import logger from '../../core/logger';
 
 /**
  * KAAGAZSEVA - Application Service
- * Core Business Intelligence Layer
+ * Draft → Upload → Payment → Escrow → Assignment
  */
 export class ApplicationService {
 
   //////////////////////////////////////////////////////
-  // 1️⃣ CREATE APPLICATION (Draft + Pricing Lock)
+  // 1️⃣ CREATE DRAFT (NEW FLOW)
+  //////////////////////////////////////////////////////
+
+  static async createDraft(
+    customerId: string,
+    data: {
+      serviceId: string;
+      state: string;
+      district: string;
+      mode: ServiceMode;
+      customerLat?: number;
+      customerLng?: number;
+      deliveryAddress?: string;
+    }
+  ) {
+
+    const service = await prisma.service.findUnique({
+      where: { id: data.serviceId },
+    });
+
+    if (!service || !service.isActive) {
+      throw new AppError('Invalid or inactive service', 400);
+    }
+
+    const govtFee = service.govtFee;
+
+    let pricing;
+
+    try {
+      pricing = PricingEngine.calculate({
+        govtFee,
+        mode: data.mode,
+        customerLat: data.customerLat,
+        customerLng: data.customerLng,
+      });
+    } catch (error: any) {
+      throw new AppError(error.message, 400);
+    }
+
+    const draft = await ApplicationRepository.create({
+
+      customer: { connect: { id: customerId } },
+
+      state: data.state,
+      district: data.district,
+      serviceType: service.name,
+      mode: data.mode,
+
+      documents: {},
+
+      status: ApplicationStatus.DRAFT,
+
+      govtFee: pricing.govtFee,
+      serviceFee: pricing.serviceFee,
+      platformCommission: pricing.platformCommission,
+      agentCommission: pricing.agentCommission,
+      deliveryFee: pricing.deliveryFee,
+      totalAmount: pricing.totalAmount,
+      distanceKm: pricing.distanceKm ?? null,
+
+      pricingSnapshot: {
+        ...pricing,
+        lockedAt: new Date().toISOString(),
+      },
+
+      deliveryAddress: data.deliveryAddress,
+      customerLat: data.customerLat,
+      customerLng: data.customerLng,
+    });
+
+    logger.info(
+      `Draft ${draft.id} created | Customer=${customerId}`
+    );
+
+    return draft;
+  }
+
+  //////////////////////////////////////////////////////
+  // 2️⃣ ATTACH DOCUMENTS TO DRAFT
+  //////////////////////////////////////////////////////
+
+  static async attachDocuments(
+    applicationId: string,
+    customerId: string,
+    documents: Record<string, any>
+  ) {
+
+    const app = await ApplicationRepository.findById(applicationId);
+
+    if (!app) throw new AppError('Application not found', 404);
+
+    if (app.customerId !== customerId) {
+      throw new AppError('Access denied', 403);
+    }
+
+    if (app.status !== ApplicationStatus.DRAFT) {
+      throw new AppError(
+        'Documents can only be uploaded to DRAFT application',
+        400
+      );
+    }
+
+    const updated = await ApplicationRepository.update(
+      applicationId,
+      {
+        documents,
+      }
+    );
+
+    return updated;
+  }
+
+  //////////////////////////////////////////////////////
+  // LEGACY CREATE (KEEP SAFE)
   //////////////////////////////////////////////////////
 
   static async createApplication(
     customerId: string,
     data: CreateApplicationInput
   ) {
-
-    //////////////////////////////////////////////////////
-    // 🚫 Prevent duplicate pending payment applications
-    //////////////////////////////////////////////////////
 
     const existing = await ApplicationRepository.findAll({
       customerId,
@@ -47,10 +156,6 @@ export class ApplicationService {
       );
     }
 
-    //////////////////////////////////////////////////////
-    // 🛡 Basic Validation
-    //////////////////////////////////////////////////////
-
     if (!data.govtFee || data.govtFee <= 0) {
       throw new AppError('Invalid government fee', 400);
     }
@@ -58,10 +163,6 @@ export class ApplicationService {
     if (!data.mode) {
       throw new AppError('Service mode required', 400);
     }
-
-    //////////////////////////////////////////////////////
-    // 💰 CALL PRICING ENGINE
-    //////////////////////////////////////////////////////
 
     let pricing;
 
@@ -76,10 +177,6 @@ export class ApplicationService {
       throw new AppError(error.message, 400);
     }
 
-    //////////////////////////////////////////////////////
-    // 📦 CREATE APPLICATION WITH LOCKED SNAPSHOT
-    //////////////////////////////////////////////////////
-
     const application = await ApplicationRepository.create({
 
       customer: { connect: { id: customerId } },
@@ -91,12 +188,7 @@ export class ApplicationService {
 
       documents: data.documents as any,
 
-      // 🔐 Move directly to PENDING_PAYMENT
       status: ApplicationStatus.PENDING_PAYMENT,
-
-      //////////////////////////////////////////////////////
-      // 💰 Pricing Lock
-      //////////////////////////////////////////////////////
 
       govtFee: pricing.govtFee,
       serviceFee: pricing.serviceFee,
@@ -106,25 +198,17 @@ export class ApplicationService {
       totalAmount: pricing.totalAmount,
       distanceKm: pricing.distanceKm ?? null,
 
-      //////////////////////////////////////////////////////
-      // 🛡 Immutable Pricing Snapshot
-      //////////////////////////////////////////////////////
-
       pricingSnapshot: {
         ...pricing,
         lockedAt: new Date().toISOString(),
       },
     });
 
-    logger.info(
-      `Application ${application.id} created with pricing snapshot | Customer=${customerId}`
-    );
-
     return application;
   }
 
   //////////////////////////////////////////////////////
-  // 2️⃣ LIST APPLICATIONS
+  // LIST
   //////////////////////////////////////////////////////
 
   static async listApplications(filters: ApplicationFilters) {
@@ -132,7 +216,7 @@ export class ApplicationService {
   }
 
   //////////////////////////////////////////////////////
-  // 3️⃣ SECURE DETAIL VIEW
+  // SECURE DETAIL VIEW
   //////////////////////////////////////////////////////
 
   static async getApplicationDetails(
@@ -152,37 +236,11 @@ export class ApplicationService {
       throw new AppError('Access denied to this application', 403);
     }
 
-    const documents = app.documents as Record<string, any>;
-
-    const updatedDocs = await Promise.all(
-      Object.entries(documents || {}).map(async ([docKey, value]) => {
-
-        if (!value?.s3Key) {
-          return [docKey, value];
-        }
-
-        const tempUrl = await StorageService.getSecureAccess(
-          value.s3Key
-        );
-
-        return [
-          docKey,
-          {
-            ...value,
-            tempUrl,
-          },
-        ];
-      })
-    );
-
-    return {
-      ...app,
-      documents: Object.fromEntries(updatedDocs),
-    };
+    return app;
   }
 
   //////////////////////////////////////////////////////
-  // 4️⃣ STATUS UPDATE (Agent/Admin)
+  // STATUS UPDATE
   //////////////////////////////////////////////////////
 
   static async updateStatus(
@@ -194,19 +252,10 @@ export class ApplicationService {
     const app = await ApplicationRepository.findById(id);
     if (!app) throw new AppError('Application not found', 404);
 
-    const updateData: any = {
-      status,
-    };
-
-    //////////////////////////////////////////////////////
-    // 🔒 IF COMPLETED → START 24H AUTO RELEASE TIMER
-    //////////////////////////////////////////////////////
+    const updateData: any = { status };
 
     if (status === ApplicationStatus.COMPLETED) {
-
       updateData.completedAt = new Date();
-
-      // 🔥 24-hour escrow protection window
       updateData.autoReleaseAt = new Date(
         Date.now() + 24 * 60 * 60 * 1000
       );
