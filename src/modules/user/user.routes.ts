@@ -35,10 +35,10 @@ router.patch(
 );
 
 /* ---------------------------------------
-   ADMIN ONLY ROUTES
+   STATE_ADMIN ONLY ROUTES
 --------------------------------------- */
 
-router.use(authorizeRoles(UserRole.ADMIN));
+router.use(authorizeRoles(UserRole.STATE_ADMIN));
 
 /**
  * GET /api/v1/users/admin/all

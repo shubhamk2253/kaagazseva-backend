@@ -69,7 +69,7 @@ router.get(
 
 router.get(
   '/',
-  authorizeRoles('ADMIN', 'AGENT'),
+  authorizeRoles('STATE_ADMIN', 'AGENT'),
   validate(applicationSchema.filter),
   ApplicationController.listApplications
 );
@@ -86,14 +86,14 @@ router.get(
 );
 
 ////////////////////////////////////////////////////////
-// 🔹 STATUS UPDATE (ADMIN / AGENT)
+// 🔹 STATUS UPDATE (STATE_ADMIN / AGENT)
 // PATCH /api/v1/applications/:id/status
 ////////////////////////////////////////////////////////
 
 router.patch(
   '/:id/status',
   apiLimiter,
-  authorizeRoles('ADMIN', 'AGENT'),
+  authorizeRoles('STATE_ADMIN', 'AGENT'),
   validate(applicationSchema.updateStatus),
   ApplicationController.updateStatus
 );

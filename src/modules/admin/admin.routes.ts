@@ -12,11 +12,11 @@ import { apiLimiter } from '../../middleware/rateLimit.middleware';
 const router = Router();
 
 /* =====================================================
-   GLOBAL ADMIN PROTECTION
+   GLOBAL STATE_ADMIN PROTECTION
 ===================================================== */
 
 router.use(requireAuth);
-router.use(authorizeRoles('ADMIN'));
+router.use(authorizeRoles('STATE_ADMIN'));
 
 /* =====================================================
    DASHBOARD ANALYTICS

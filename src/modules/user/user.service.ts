@@ -60,7 +60,7 @@ export class UserService {
     }
 
     // Prevent suspending Admin accounts
-    if (user.role === UserRole.ADMIN) {
+    if (user.role === UserRole.STATE_ADMIN) {
       throw new AppError('Cannot suspend an Admin account', 403);
     }
 

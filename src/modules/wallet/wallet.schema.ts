@@ -63,7 +63,7 @@ export const walletSchema = {
   }),
 
   /* ==========================================
-     4️⃣ ADMIN - Approve Withdrawal
+     4️⃣ STATE_ADMIN - Approve Withdrawal
   ========================================== */
   approveWithdrawal: z.object({
     params: z.object({
@@ -72,7 +72,7 @@ export const walletSchema = {
   }),
 
   /* ==========================================
-     5️⃣ ADMIN - Reject Withdrawal
+     5️⃣ STATE_ADMIN - Reject Withdrawal
   ========================================== */
   rejectWithdrawal: z.object({
     params: z.object({

@@ -118,57 +118,55 @@ enum RefundStatus {
 ///////////////////////////////////////////////////////
 
 model User {
-  id               String           @id @default(uuid())
-  phoneNumber      String           @unique
-  name             String?
-  role             UserRole         @default(CUSTOMER)
-  isActive         Boolean          @default(true)
+  id                        String            @id @default(uuid())
+  phoneNumber               String            @unique
+  name                      String?
+  role                      UserRole          @default(CUSTOMER)
+  isActive                  Boolean           @default(true)
 
-  suspensionStatus SuspensionStatus @default(NONE)
-  isSuspended      Boolean          @default(false)
+  suspensionStatus         SuspensionStatus  @default(NONE)
+  isSuspended              Boolean           @default(false)
   suspensionReviewDeadline DateTime?
-  suspensionLevel Int              @default(0)
-  suspensionReason String?
-  suspendedBy      String?
-  suspendedAt      DateTime?
+  suspensionLevel          Int               @default(0)
+  suspensionReason         String?
+  suspendedBy              String?
+  suspendedAt              DateTime?
 
-  state            String?
-  district         String?
-  latitude         Float?
-  longitude        Float?
+  state                    String?
+  district                 String?
+  latitude                 Float?
+  longitude                Float?
 
-  wallet           Wallet?
-  applications     Application[]    @relation("CustomerApplications")
-  assignedApps     Application[]    @relation("AgentApplications")
-  transactions     Transaction[]
-  escrowAsCustomer EscrowHolding[]  @relation("EscrowCustomer")
-  escrowAsAgent    EscrowHolding[]  @relation("EscrowAgent")
+  wallet                   Wallet?
+  applications             Application[]     @relation("CustomerApplications")
+  assignedApps             Application[]     @relation("AgentApplications")
+  transactions             Transaction[]
+  escrowAsCustomer         EscrowHolding[]   @relation("EscrowCustomer")
+  escrowAsAgent            EscrowHolding[]   @relation("EscrowAgent")
 
-  withdrawals      WithdrawalRequest[] @relation("AgentWithdrawals")
-  approvedWithdrawals WithdrawalRequest[] @relation("ApprovedWithdrawals")
-  rejectedWithdrawals WithdrawalRequest[] @relation("RejectedWithdrawals")
+  withdrawals              WithdrawalRequest[] @relation("AgentWithdrawals")
+  approvedWithdrawals      WithdrawalRequest[] @relation("ApprovedWithdrawals")
+  rejectedWithdrawals      WithdrawalRequest[] @relation("RejectedWithdrawals")
 
-  agentMetrics     AgentMetrics?
-  notifications    Notification[]
+  agentMetrics             AgentMetrics?
+  notifications            Notification[]
 
-  ticketsCreated   Ticket[]         @relation("CreatedTickets")
-  ticketsAssigned  Ticket[]         @relation("AssignedTickets")
-  ticketResponses  TicketResponse[]
+  ticketsCreated           Ticket[]          @relation("CreatedTickets")
+  ticketsAssigned          Ticket[]          @relation("AssignedTickets")
+  ticketResponses          TicketResponse[]
 
-  auditLogs        AuditLog[]
+  auditLogs                AuditLog[]
 
-  // SuspensionCase Relations
-  initiatedSuspensions SuspensionCase[] @relation("SuspensionInitiator")
-  suspensionCases      SuspensionCase[] @relation("UserSuspensions")
-  escalatedCases       SuspensionCase[] @relation("EscalatedTo")
-  resolvedCases        SuspensionCase[] @relation("ResolvedBy")
+  initiatedSuspensions     SuspensionCase[]  @relation("SuspensionInitiator")
+  suspensionCases          SuspensionCase[]  @relation("UserSuspensions")
+  escalatedCases           SuspensionCase[]  @relation("EscalatedTo")
+  resolvedCases            SuspensionCase[]  @relation("ResolvedBy")
 
-  // Refund Relations
-  refundRequests   RefundRequest[]  @relation("RefundRequester")
-  reviewedRefunds  RefundRequest[]  @relation("RefundReviewer")
+  refundRequests           RefundRequest[]   @relation("RefundRequester")
+  reviewedRefunds          RefundRequest[]   @relation("RefundReviewer")
 
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  createdAt                DateTime          @default(now())
+  updatedAt                DateTime          @updatedAt
 
   @@index([role])
   @@index([state])
@@ -198,31 +196,34 @@ model Wallet {
 ///////////////////////////////////////////////////////
 
 model SuspensionCase {
-  id            String           @id @default(uuid())
+  id             String           @id @default(uuid())
 
-  userId        String
-  user          User             @relation("UserSuspensions", fields: [userId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User             @relation("UserSuspensions", fields: [userId], references: [id], onDelete: Cascade)
 
-  initiatedById String
-  initiatedBy   User             @relation("SuspensionInitiator", fields: [initiatedById], references: [id])
+  initiatedById  String
+  initiatedBy    User             @relation("SuspensionInitiator", fields: [initiatedById], references: [id])
 
-  reason        String
-  evidence      Json?
+  reason         String
+  evidence       Json?
 
-  level         Int
-  status        SuspensionStatus
+  level          Int
+  status         SuspensionStatus
 
-  escalatedToId String?
-  escalatedTo   User?            @relation("EscalatedTo", fields: [escalatedToId], references: [id])
+  escalatedToId  String?
+  escalatedTo    User?            @relation("EscalatedTo", fields: [escalatedToId], references: [id])
 
-  resolvedById  String?
-  resolvedBy    User?            @relation("ResolvedBy", fields: [resolvedById], references: [id])
+  resolvedById   String?
+  resolvedBy     User?            @relation("ResolvedBy", fields: [resolvedById], references: [id])
 
-  appealMessage String?
-  appealAt      DateTime?
+  appealMessage  String?
+  appealAt       DateTime?
 
-  createdAt     DateTime           @default(now())
-  updatedAt     DateTime           @updatedAt
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@index([userId])
+  @@index([status])
 }
 
 ///////////////////////////////////////////////////////
@@ -230,59 +231,65 @@ model SuspensionCase {
 ///////////////////////////////////////////////////////
 
 model Application {
-  id              String            @id @default(uuid())
-  state           String
-  district        String
-  serviceType     String
-  mode            ServiceMode
-  status          ApplicationStatus @default(DRAFT)
+  id                String            @id @default(uuid())
+  state             String
+  district          String
+  serviceType       String
 
-  documents       Json
+  // NEW RELATIONAL SERVICE ARCHITECTURE
+  serviceId         String?
+  service           Service?          @relation(fields: [serviceId], references: [id])
+
+  mode              ServiceMode
+  status            ApplicationStatus @default(DRAFT)
+
+  documents         Json
 
   govtFee           Decimal           @db.Decimal(12, 2)
-  serviceFee       Decimal           @db.Decimal(12, 2)
-  platformCommission Decimal        @db.Decimal(12, 2)
-  agentCommission  Decimal          @db.Decimal(12, 2)
-  deliveryFee      Decimal           @default(0.0) @db.Decimal(12, 2)
-  totalAmount      Decimal           @db.Decimal(12, 2)
+  serviceFee        Decimal           @db.Decimal(12, 2)
+  platformCommission Decimal          @db.Decimal(12, 2)
+  agentCommission   Decimal           @db.Decimal(12, 2)
+  deliveryFee       Decimal           @default(0.0) @db.Decimal(12, 2)
+  totalAmount       Decimal           @db.Decimal(12, 2)
 
-  distanceKm      Float?
-  pricingSnapshot Json?
+  distanceKm        Float?
+  pricingSnapshot   Json?
 
-  paymentStatus   TransactionStatus @default(PENDING)
-  paidAt          DateTime?
+  paymentStatus     TransactionStatus @default(PENDING)
+  paidAt            DateTime?
 
-  escrow          EscrowHolding?
-  refundRequests  RefundRequest[]
+  escrow            EscrowHolding?
+  refundRequests    RefundRequest[]
 
-  customerId      String
-  customer        User              @relation("CustomerApplications", fields: [customerId], references: [id], onDelete: Cascade)
+  customerId        String
+  customer          User              @relation("CustomerApplications", fields: [customerId], references: [id], onDelete: Cascade)
 
-  agentId         String?
-  agent           User?              @relation("AgentApplications", fields: [agentId], references: [id])
+  agentId           String?
+  agent             User?             @relation("AgentApplications", fields: [agentId], references: [id])
 
   assignmentDeadline DateTime?
-  assignedAt      DateTime?
-  acceptedAt      DateTime?
+  assignedAt        DateTime?
+  acceptedAt        DateTime?
 
-  deliveryAddress String?
-  customerLat     Float?
-  customerLng     Float?
+  deliveryAddress   String?
+  customerLat       Float?
+  customerLng       Float?
 
-  completedAt     DateTime?
-  autoReleaseAt   DateTime?
+  completedAt       DateTime?
+  autoReleaseAt     DateTime?
 
-  riskScore       Int                @default(0)
-  manualReview    Boolean            @default(false)
-  refundRequested Boolean            @default(false)
-  escalationLevel Int                @default(1)
+  riskScore         Int               @default(0)
+  manualReview      Boolean           @default(false)
+  refundRequested   Boolean           @default(false)
+  escalationLevel   Int               @default(1)
 
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
 
   @@index([customerId])
   @@index([agentId])
   @@index([status])
+  @@index([serviceId])
 }
 
 ///////////////////////////////////////////////////////
@@ -302,13 +309,15 @@ model EscrowHolding {
   agent           User?       @relation("EscrowAgent", fields: [agentId], references: [id])
 
   totalAmount     Decimal     @db.Decimal(12, 2)
-  platformAmount Decimal     @db.Decimal(12, 2)
+  platformAmount  Decimal     @db.Decimal(12, 2)
   agentAmount     Decimal     @db.Decimal(12, 2)
 
   isReleased      Boolean     @default(false)
   releasedAt      DateTime?
 
   createdAt       DateTime    @default(now())
+
+  @@index([customerId])
 }
 
 ///////////////////////////////////////////////////////
@@ -316,21 +325,24 @@ model EscrowHolding {
 ///////////////////////////////////////////////////////
 
 model Transaction {
-  id               String            @id @default(uuid())
-  amount           Decimal           @db.Decimal(12, 2)
-  type             TransactionType
-  status           TransactionStatus @default(PENDING)
+  id                String            @id @default(uuid())
+  amount            Decimal           @db.Decimal(12, 2)
+  type              TransactionType
+  status            TransactionStatus @default(PENDING)
 
-  gatewayOrderId   String?
-  gatewayPaymentId String?
+  gatewayOrderId    String?
+  gatewayPaymentId  String?
 
-  referenceId      String?
-  metadata         Json?
+  referenceId       String?
+  metadata          Json?
 
-  userId           String
-  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId            String
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  createdAt        DateTime           @default(now())
+  createdAt         DateTime          @default(now())
+
+  @@index([userId])
+  @@index([status])
 }
 
 ///////////////////////////////////////////////////////
@@ -338,27 +350,29 @@ model Transaction {
 ///////////////////////////////////////////////////////
 
 model WithdrawalRequest {
-  id              String           @id @default(uuid())
+  id               String           @id @default(uuid())
 
-  agentId         String
-  walletId        String
-  amount          Int
-  status          WithdrawalStatus
+  agentId          String
+  walletId         String
+  amount           Int
+  status           WithdrawalStatus
 
-  approvedBy      String?
-  rejectedBy      String?
+  approvedBy       String?
+  rejectedBy       String?
 
-  approvedAt      DateTime?
-  rejectedAt      DateTime?
-  rejectionReason String?
+  approvedAt       DateTime?
+  rejectedAt       DateTime?
+  rejectionReason  String?
 
-  createdAt       DateTime           @default(now())
+  createdAt        DateTime         @default(now())
 
-  agent           User             @relation("AgentWithdrawals", fields: [agentId], references: [id], onDelete: Cascade)
-  wallet          Wallet           @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  agent            User             @relation("AgentWithdrawals", fields: [agentId], references: [id], onDelete: Cascade)
+  wallet           Wallet           @relation(fields: [walletId], references: [id], onDelete: Cascade)
 
-  approver        User?            @relation("ApprovedWithdrawals", fields: [approvedBy], references: [id])
-  rejector        User?            @relation("RejectedWithdrawals", fields: [rejectedBy], references: [id])
+  approver         User?            @relation("ApprovedWithdrawals", fields: [approvedBy], references: [id])
+  rejector         User?            @relation("RejectedWithdrawals", fields: [rejectedBy], references: [id])
+
+  @@index([agentId])
 }
 
 ///////////////////////////////////////////////////////
@@ -366,21 +380,21 @@ model WithdrawalRequest {
 ///////////////////////////////////////////////////////
 
 model AgentMetrics {
-  id              String   @id @default(uuid())
+  id             String   @id @default(uuid())
 
-  agentId         String   @unique
-  agent           User     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  agentId        String   @unique
+  agent          User     @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
   activeCases    Int      @default(0)
   completedCases Int      @default(0)
 
-  rating          Float    @default(5.0)
+  rating         Float    @default(5.0)
   rejectionCount Int      @default(0)
   timeoutCount   Int      @default(0)
 
   priorityScore  Float    @default(0)
 
-  updatedAt       DateTime @updatedAt
+  updatedAt      DateTime @updatedAt
 }
 
 ///////////////////////////////////////////////////////
@@ -400,7 +414,9 @@ model Notification {
   metadata  Json?
   isRead    Boolean          @default(false)
 
-  createdAt DateTime          @default(now())
+  createdAt DateTime         @default(now())
+
+  @@index([userId])
 }
 
 ///////////////////////////////////////////////////////
@@ -427,6 +443,8 @@ model Ticket {
 
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
+
+  @@index([createdById])
 }
 
 model TicketResponse {
@@ -441,6 +459,8 @@ model TicketResponse {
   message   String
 
   createdAt DateTime @default(now())
+
+  @@index([ticketId])
 }
 
 ///////////////////////////////////////////////////////
@@ -471,6 +491,8 @@ model AuditLog {
   success      Boolean     @default(true)
 
   createdAt    DateTime    @default(now())
+
+  @@index([userId])
 }
 
 ///////////////////////////////////////////////////////
@@ -515,6 +537,7 @@ model Service {
   state       State    @relation(fields: [stateId], references: [id], onDelete: Cascade)
 
   documents   ServiceRequiredDocument[]
+  applications Application[]
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -574,4 +597,35 @@ model RefundRequest {
   updatedAt     DateTime     @updatedAt
 
   @@index([applicationId])
+}
+
+model PaymentWebhookEvent {
+  id           String   @id @default(uuid())
+  eventId      String   @unique
+  eventType    String
+  payload      Json
+  processed    Boolean  @default(false)
+  processedAt  DateTime?
+  createdAt    DateTime @default(now())
+
+  @@index([eventType])
+}
+
+///////////////////////////////////////////////////////
+// SYSTEM CONTROL (FOUNDER EMERGENCY SWITCH)
+///////////////////////////////////////////////////////
+
+model SystemControl {
+  id                String   @id @default(uuid())
+
+  paymentsFrozen    Boolean  @default(false)
+  withdrawalsFrozen Boolean  @default(false)
+  refundsFrozen     Boolean  @default(false)
+
+  reason            String?
+  activatedBy       String?
+  activatedAt       DateTime?
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 }

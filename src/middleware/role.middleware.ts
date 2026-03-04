@@ -9,8 +9,8 @@ import logger from '../core/logger';
  * Strict RBAC enforcement layer.
  *
  * Usage:
- *  authorizeRoles(UserRole.ADMIN)
- *  authorizeRoles(UserRole.ADMIN, UserRole.AGENT)
+ *  authorizeRoles(UserRole.STATE_ADMIN)
+ *  authorizeRoles(UserRole.STATE_ADMIN, UserRole.AGENT)
  */
 
 const roleGuard =

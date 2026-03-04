@@ -49,7 +49,7 @@ export class TicketService {
 
     // Staff replies to OPEN → move to IN_PROGRESS
     if (
-      (role === UserRole.ADMIN || role === UserRole.AGENT) &&
+      (role === UserRole.STATE_ADMIN || role === UserRole.AGENT) &&
       ticket.status === TicketStatus.OPEN
     ) {
       await TicketRepository.updateTicket(ticketId, {
@@ -136,7 +136,7 @@ export class TicketService {
   }
 
   //////////////////////////////////////////////////////
-  // ADMIN UPDATE
+  // STATE_ADMIN UPDATE
   //////////////////////////////////////////////////////
 
   static async updateTicket(

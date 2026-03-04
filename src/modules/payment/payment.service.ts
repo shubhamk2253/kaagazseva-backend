@@ -9,13 +9,27 @@ import {
 } from '@prisma/client';
 import logger from '../../core/logger';
 import { AssignmentEngine } from '../../modules/assignment/assignment.engine';
+import { AnomalyEngine } from '../security/anomaly.engine';
+import { RiskEngine } from '../security/risk.engine';
 
 /**
  * KAAGAZSEVA - FINANCIAL HARDENED PAYMENT SERVICE
- * Phase 5B – Idempotent + Double Payment Protection
+ * Phase 5C – Idempotency + Risk Engine + Anomaly Detection + System Control
  */
 
 export class PaymentService {
+
+  //////////////////////////////////////////////////////
+  // INTERNAL SYSTEM CONTROL HELPER
+  //////////////////////////////////////////////////////
+
+  private static async getSystemControl() {
+    return prisma.systemControl.upsert({
+      where: { id: 'SYSTEM_CONTROL_SINGLETON' },
+      update: {},
+      create: { id: 'SYSTEM_CONTROL_SINGLETON' },
+    });
+  }
 
   //////////////////////////////////////////////////////
   // 1️⃣ CREATE PAYMENT ORDER
@@ -28,6 +42,19 @@ export class PaymentService {
 
     if (!userId || !applicationId) {
       throw new AppError('Missing required parameters', 400);
+    }
+
+    //////////////////////////////////////////////////////
+    // GLOBAL PAYMENT FREEZE CHECK
+    //////////////////////////////////////////////////////
+
+    const systemControl = await this.getSystemControl();
+
+    if (systemControl.paymentsFrozen) {
+      throw new AppError(
+        'Payments are temporarily disabled due to system maintenance.',
+        503
+      );
     }
 
     const application = await prisma.application.findUnique({
@@ -50,16 +77,30 @@ export class PaymentService {
     }
 
     //////////////////////////////////////////////////////
-    // Validate Mandatory Documents
+    // Validate Service
     //////////////////////////////////////////////////////
 
-    const service = await prisma.service.findFirst({
-      where: { name: application.serviceType },
-    });
+    let service = null;
+
+    if (application.serviceId) {
+      service = await prisma.service.findUnique({
+        where: { id: application.serviceId },
+      });
+    }
+
+    if (!service) {
+      service = await prisma.service.findFirst({
+        where: { name: application.serviceType },
+      });
+    }
 
     if (!service) {
       throw new AppError('Service not found', 404);
     }
+
+    //////////////////////////////////////////////////////
+    // Validate Mandatory Documents
+    //////////////////////////////////////////////////////
 
     const requiredDocs = await prisma.serviceRequiredDocument.findMany({
       where: { serviceId: service.id },
@@ -84,7 +125,7 @@ export class PaymentService {
     }
 
     //////////////////////////////////////////////////////
-    // Create Transaction
+    // Create Transaction (Atomic Placeholder)
     //////////////////////////////////////////////////////
 
     const transaction = await prisma.transaction.create({
@@ -148,6 +189,19 @@ export class PaymentService {
     transactionId: string
   ) {
 
+    //////////////////////////////////////////////////////
+    // GLOBAL PAYMENT FREEZE CHECK
+    //////////////////////////////////////////////////////
+
+    const systemControl = await this.getSystemControl();
+
+    if (systemControl.paymentsFrozen) {
+      throw new AppError(
+        'Payment verification temporarily disabled.',
+        503
+      );
+    }
+
     if (!orderId || !paymentId || !signature || !transactionId) {
       throw new AppError('Missing payment verification parameters', 400);
     }
@@ -189,10 +243,6 @@ export class PaymentService {
 
     const result = await prisma.$transaction(async (tx) => {
 
-      //////////////////////////////////////////////////////
-      // Strict Compare-And-Set Update
-      //////////////////////////////////////////////////////
-
       const updateResult = await tx.transaction.updateMany({
         where: {
           id: transactionId,
@@ -229,6 +279,16 @@ export class PaymentService {
       if (!application) {
         throw new AppError('Application not found', 404);
       }
+
+      //////////////////////////////////////////////////////
+      // RISK ENGINE
+      //////////////////////////////////////////////////////
+
+      await RiskEngine.calculateRisk(
+        application.customerId,
+        applicationId,
+        Number(application.totalAmount)
+      );
 
       if (application.paymentStatus === TransactionStatus.SUCCESS) {
         throw new AppError(
@@ -302,7 +362,7 @@ export class PaymentService {
     });
 
     //////////////////////////////////////////////////////
-    // Auto Assignment
+    // Post-Transaction Hooks
     //////////////////////////////////////////////////////
 
     try {
@@ -312,6 +372,15 @@ export class PaymentService {
     }
 
     logger.info(`Payment & Escrow SUCCESS → tx=${transactionId}`);
+
+    //////////////////////////////////////////////////////
+    // ANOMALY DETECTION
+    //////////////////////////////////////////////////////
+
+    await AnomalyEngine.analyzePayment(
+      existingTransaction.userId,
+      Number(existingTransaction.amount)
+    );
 
     return {
       message: 'Payment verified and escrow created successfully',

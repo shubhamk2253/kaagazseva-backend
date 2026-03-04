@@ -102,7 +102,7 @@ export class AssignmentEngine {
       }
 
       //////////////////////////////////////////////////////
-      // LEVEL 4+ → ADMIN REVIEW
+      // LEVEL 4+ → STATE_ADMIN REVIEW
       //////////////////////////////////////////////////////
 
       else {
@@ -168,7 +168,7 @@ export class AssignmentEngine {
       where: {
         role: UserRole.AGENT,
         isActive: true,
-        suspensionStatus: SuspensionStatus.ACTIVE, // 🔥 PHASE 5 PROTECTION
+        suspensionStatus: SuspensionStatus.CONFIRMED, // 🔥 PHASE 5 PROTECTION
 
         ...(filter.state && { state: filter.state }),
         ...(filter.district && { district: filter.district }),
@@ -196,7 +196,7 @@ export class AssignmentEngine {
       where: {
         role: UserRole.AGENT,
         isActive: true,
-        suspensionStatus: SuspensionStatus.ACTIVE, // 🔥 PHASE 5 PROTECTION
+        suspensionStatus: SuspensionStatus.CONFIRMED, // 🔥 PHASE 5 PROTECTION
 
         latitude: { not: null },
         longitude: { not: null },

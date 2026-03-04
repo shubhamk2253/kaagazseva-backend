@@ -29,7 +29,7 @@ export class AdminRepository {
     ] = await Promise.all([
       prisma.user.count({ where: { role: UserRole.CUSTOMER } }),
       prisma.user.count({ where: { role: UserRole.AGENT } }),
-      prisma.user.count({ where: { role: UserRole.ADMIN } }),
+      prisma.user.count({ where: { role: UserRole.STATE_ADMIN } }),
 
       prisma.user.count({
         where: { createdAt: { gte: today } },

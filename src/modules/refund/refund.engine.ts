@@ -7,17 +7,44 @@ import {
   UserRole,
 } from '@prisma/client';
 import logger from '../../core/logger';
+import { AnomalyEngine } from '../security/anomaly.engine';
 
 /**
  * KAAGAZSEVA - Refund Engine (Full + Partial + Escrow Safe)
+ * Hardened with Anomaly Detection for Financial Integrity
  */
 export class RefundEngine {
+
+  //////////////////////////////////////////////////////
+  // INTERNAL SYSTEM CONTROL HELPER
+  //////////////////////////////////////////////////////
+
+  private static async getSystemControl() {
+    return prisma.systemControl.upsert({
+      where: { id: 'SYSTEM_CONTROL_SINGLETON' },
+      update: {},
+      create: { id: 'SYSTEM_CONTROL_SINGLETON' },
+    });
+  }
 
   //////////////////////////////////////////////////////
   // 1️⃣ CUSTOMER REQUEST REFUND
   //////////////////////////////////////////////////////
 
   static async requestRefund(applicationId: string, userId: string) {
+
+    //////////////////////////////////////////////////////
+    // GLOBAL REFUND FREEZE CHECK
+    //////////////////////////////////////////////////////
+
+    const systemControl = await this.getSystemControl();
+
+    if (systemControl.refundsFrozen) {
+      throw new AppError(
+        'Refunds are temporarily disabled due to system maintenance.',
+        503
+      );
+    }
 
     const application = await prisma.application.findUnique({
       where: { id: applicationId },
@@ -50,7 +77,7 @@ export class RefundEngine {
   }
 
   //////////////////////////////////////////////////////
-  // 2️⃣ ADMIN EXECUTE REFUND (FULL OR PARTIAL)
+  // 2️⃣ STATE_ADMIN EXECUTE REFUND (FULL OR PARTIAL)
   //////////////////////////////////////////////////////
 
   static async executeRefund(
@@ -58,6 +85,19 @@ export class RefundEngine {
     adminRole: UserRole,
     refundAmount?: number
   ) {
+
+    //////////////////////////////////////////////////////
+    // GLOBAL REFUND FREEZE CHECK
+    //////////////////////////////////////////////////////
+
+    const systemControl = await this.getSystemControl();
+
+    if (systemControl.refundsFrozen) {
+      throw new AppError(
+        'Refund processing is temporarily disabled.',
+        503
+      );
+    }
 
     if (adminRole !== UserRole.STATE_ADMIN) {
       throw new AppError('Only admin can process refunds', 403);
@@ -119,12 +159,16 @@ export class RefundEngine {
       });
 
       //////////////////////////////////////////////////////
+      // SECURITY CHECK: REFUND ANOMALY DETECTION
+      //////////////////////////////////////////////////////
+
+      await AnomalyEngine.analyzeRefund(application.customerId);
+
+      //////////////////////////////////////////////////////
       // 2️⃣ HANDLE PARTIAL VS FULL
       //////////////////////////////////////////////////////
 
       if (finalRefundAmount === totalEscrow) {
-
-        // FULL REFUND
 
         await tx.escrowHolding.update({
           where: { id: application.escrow.id },
@@ -145,8 +189,6 @@ export class RefundEngine {
 
       } else {
 
-        // PARTIAL REFUND
-
         const remainingEscrow =
           totalEscrow - finalRefundAmount;
 
@@ -166,7 +208,7 @@ export class RefundEngine {
       }
 
       //////////////////////////////////////////////////////
-      // 3️⃣ ADJUST AGENT METRICS (if not completed)
+      // 3️⃣ ADJUST AGENT METRICS
       //////////////////////////////////////////////////////
 
       if (
@@ -193,7 +235,7 @@ export class RefundEngine {
   }
 
   //////////////////////////////////////////////////////
-  // 3️⃣ ADMIN REJECT REFUND
+  // 3️⃣ STATE_ADMIN REJECT REFUND
   //////////////////////////////////////////////////////
 
   static async rejectRefund(

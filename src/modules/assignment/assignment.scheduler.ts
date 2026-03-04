@@ -114,7 +114,7 @@ export class AssignmentScheduler {
                 });
 
                 logger.warn(
-                  `🚨 Escalated to ADMIN review → ${app.id}`
+                  `🚨 Escalated to STATE_ADMIN review → ${app.id}`
                 );
 
                 return;

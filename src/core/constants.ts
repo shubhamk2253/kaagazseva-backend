@@ -8,7 +8,7 @@
 ========================================================= */
 
 export enum UserRole {
-  ADMIN = 'ADMIN',
+  STATE_ADMIN = 'STATE_ADMIN',
   AGENT = 'AGENT',
   CUSTOMER = 'CUSTOMER',
 }
@@ -70,7 +70,7 @@ export enum AuditEvent {
   APPLICATION_STATUS_CHANGED = 'APPLICATION_STATUS_CHANGED',
   WALLET_WITHDRAWAL_REQUESTED = 'WALLET_WITHDRAWAL_REQUESTED',
   WALLET_WITHDRAWAL_APPROVED = 'WALLET_WITHDRAWAL_APPROVED',
-  ADMIN_ACTION = 'ADMIN_ACTION',
+  STATE_ADMIN_ACTION = 'STATE_ADMIN_ACTION',
 }
 
 /* =========================================================

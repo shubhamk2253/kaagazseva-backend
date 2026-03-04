@@ -1,7 +1,7 @@
 /*
   Warnings:
 
-  - The values [ADMIN] on the enum `UserRole` will be removed. If these variants are still used in the database, this will fail.
+  - The values [STATE_ADMIN] on the enum `UserRole` will be removed. If these variants are still used in the database, this will fail.
 
 */
 -- AlterEnum

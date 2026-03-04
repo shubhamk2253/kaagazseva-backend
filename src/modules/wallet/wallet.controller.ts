@@ -120,13 +120,13 @@ export class WalletController {
   );
 
   /* =====================================================
-     ADMIN - Approve Withdrawal
+     STATE_ADMIN - Approve Withdrawal
      POST /api/v1/wallet/withdraw/:id/approve
   ===================================================== */
   static approveWithdrawal = asyncHandler(
     async (req: RequestWithUser, res: Response) => {
 
-      if (req.user!.role !== UserRole.ADMIN) {
+      if (req.user!.role !== UserRole.STATE_ADMIN) {
         throw new AppError('Unauthorized action', 403);
       }
 
@@ -147,13 +147,13 @@ export class WalletController {
   );
 
   /* =====================================================
-     ADMIN - Reject Withdrawal
+     STATE_ADMIN - Reject Withdrawal
      POST /api/v1/wallet/withdraw/:id/reject
   ===================================================== */
   static rejectWithdrawal = asyncHandler(
     async (req: RequestWithUser, res: Response) => {
 
-      if (req.user!.role !== UserRole.ADMIN) {
+      if (req.user!.role !== UserRole.STATE_ADMIN) {
         throw new AppError('Unauthorized action', 403);
       }
 

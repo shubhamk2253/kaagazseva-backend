@@ -33,6 +33,10 @@ export class FounderVisibilityService {
       },
     });
 
+    //////////////////////////////////////////////////////
+    // WALLET FREEZE DATA
+    //////////////////////////////////////////////////////
+
     const frozenWallets = await prisma.wallet.findMany({
       where: { isFrozen: true },
       select: { balance: true },
@@ -43,18 +47,36 @@ export class FounderVisibilityService {
       0
     );
 
+    //////////////////////////////////////////////////////
+    // SUSPENSION CASES BY LEVEL
+    //////////////////////////////////////////////////////
+
     const casesByLevel = await prisma.suspensionCase.groupBy({
       by: ['level'],
       _count: true,
     });
 
+    //////////////////////////////////////////////////////
+    // SYSTEM CONTROL STATUS (PHASE 8)
+    //////////////////////////////////////////////////////
+
+    const systemControl = await prisma.systemControl.findFirst();
+
     return {
       activeCases,
       confirmedCases,
       autoEscalations,
+
       frozenWalletCount: frozenWallets.length,
       totalFrozenBalance,
+
       casesByLevel,
+
+      systemStatus: {
+        paymentsFrozen: systemControl?.paymentsFrozen ?? false,
+        refundsFrozen: systemControl?.refundsFrozen ?? false,
+        withdrawalsFrozen: systemControl?.withdrawalsFrozen ?? false,
+      },
     };
   }
 }

@@ -2,30 +2,21 @@ import Redis from 'ioredis';
 import { env } from './env';
 
 /**
- * KAAGAZSEVA - Redis Layer
- * Production-ready configuration (Upstash compatible)
+ * KAAGAZSEVA - Redis Layer (Upstash Compatible)
  */
 
 export const redis = new Redis(env.REDIS_URL, {
   lazyConnect: true,
-  maxRetriesPerRequest: 3,
-  enableReadyCheck: true,
 
-  // 🔐 Required for Upstash TLS
-  tls: env.REDIS_URL.startsWith('rediss://')
-    ? {}
-    : undefined,
+  maxRetriesPerRequest: null,
+  enableReadyCheck: false,
 
   retryStrategy: (times) => {
-    const delay = Math.min(times * 100, 3000);
-
-    if (times > 10) {
-      console.error('❌ Redis: Too many retry attempts');
-      return null;
-    }
-
+    const delay = Math.min(times * 200, 5000);
     return delay;
   },
+
+  tls: {}
 });
 
 /**
@@ -38,7 +29,6 @@ export const connectRedis = async () => {
   } catch (error) {
     console.error('❌ Redis connection failed');
     console.error(error);
-    process.exit(1);
   }
 };
 
@@ -50,14 +40,12 @@ export const disconnectRedis = async () => {
     await redis.quit();
     console.log('🔌 Redis disconnected gracefully');
   } catch (error) {
-    console.error('Redis disconnection error', error);
+    console.error(error);
   }
 };
 
 redis.on('ready', () => {
-  if (env.NODE_ENV === 'development') {
-    console.log('⚡ Redis ready');
-  }
+  console.log('⚡ Redis ready');
 });
 
 redis.on('error', (err) => {

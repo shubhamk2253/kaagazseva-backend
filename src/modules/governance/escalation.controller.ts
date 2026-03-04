@@ -1,7 +1,8 @@
-import { Request, Response, NextFunction } from 'express';
+import { Response, NextFunction } from 'express';
 import { EscalationService } from './escalation.service';
 import { AppError } from '../../core/AppError';
 import logger from '../../core/logger';
+import { RequestWithUser } from '../../core/types';
 
 export class EscalationController {
 
@@ -10,7 +11,7 @@ export class EscalationController {
   //////////////////////////////////////////////////////
 
   static async escalate(
-    req: Request,
+    req: RequestWithUser,
     res: Response,
     next: NextFunction
   ) {
@@ -22,7 +23,7 @@ export class EscalationController {
         throw new AppError('Case ID is required', 400);
       }
 
-      const escalatedById = req.user?.id;
+      const escalatedById = req.user?.userId;
 
       if (!escalatedById) {
         throw new AppError('Unauthorized', 401);

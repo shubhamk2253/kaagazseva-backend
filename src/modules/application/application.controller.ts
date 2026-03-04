@@ -170,7 +170,7 @@ export class ApplicationController {
   );
 
   //////////////////////////////////////////////////////
-  // ADMIN / AGENT LIST
+  // STATE_ADMIN / AGENT LIST
   //////////////////////////////////////////////////////
 
   static listApplications = asyncHandler(

@@ -61,7 +61,7 @@ export const applicationSchema = {
   }),
 
   /* =====================================================
-     2️⃣ UPDATE STATUS (ADMIN / AGENT)
+     2️⃣ UPDATE STATUS (STATE_ADMIN / AGENT)
   ===================================================== */
   updateStatus: z.object({
     params: z.object({

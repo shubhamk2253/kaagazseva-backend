@@ -10,6 +10,18 @@ import logger from '../../core/logger';
  */
 export class WalletService {
 
+  //////////////////////////////////////////////////////
+  // INTERNAL SYSTEM CONTROL HELPER
+  //////////////////////////////////////////////////////
+
+  private static async getSystemControl() {
+    return prisma.systemControl.upsert({
+      where: { id: 'SYSTEM_CONTROL_SINGLETON' },
+      update: {},
+      create: { id: 'SYSTEM_CONTROL_SINGLETON' },
+    });
+  }
+
   /* =====================================================
      Get Wallet Balance
   ===================================================== */
@@ -89,6 +101,19 @@ export class WalletService {
     amountInPaise: number
   ) {
 
+    //////////////////////////////////////////////////////
+    // GLOBAL WITHDRAWAL FREEZE CHECK
+    //////////////////////////////////////////////////////
+
+    const systemControl = await this.getSystemControl();
+
+    if (systemControl.withdrawalsFrozen) {
+      throw new AppError(
+        'Withdrawals are temporarily disabled due to system maintenance.',
+        503
+      );
+    }
+
     if (!amountInPaise || amountInPaise <= 0) {
       throw new AppError('Invalid withdrawal amount', 400);
     }
@@ -127,12 +152,25 @@ export class WalletService {
   }
 
   /* =====================================================
-     ADMIN - Approve Withdrawal
+     STATE_ADMIN - Approve Withdrawal
   ===================================================== */
   static async approveWithdrawal(
     requestId: string,
     adminId: string
   ) {
+
+    //////////////////////////////////////////////////////
+    // GLOBAL WITHDRAWAL FREEZE CHECK
+    //////////////////////////////////////////////////////
+
+    const systemControl = await this.getSystemControl();
+
+    if (systemControl.withdrawalsFrozen) {
+      throw new AppError(
+        'Withdrawal approvals are temporarily disabled.',
+        503
+      );
+    }
 
     const request = await prisma.withdrawalRequest.findUnique({
       where: { id: requestId },
@@ -149,7 +187,6 @@ export class WalletService {
 
     await prisma.$transaction(async (tx) => {
 
-      // 🔒 Re-fetch wallet inside transaction
       const wallet = await tx.wallet.findUnique({
         where: { id: request.walletId },
       });
@@ -164,7 +201,7 @@ export class WalletService {
         throw new AppError('Insufficient balance at approval time', 400);
       }
 
-      // 1️⃣ Debit wallet
+      // Debit wallet
       await tx.wallet.update({
         where: { id: wallet.id },
         data: {
@@ -172,7 +209,7 @@ export class WalletService {
         },
       });
 
-      // 2️⃣ Ledger entry
+      // Ledger entry
       await tx.transaction.create({
         data: {
           userId: request.agentId,
@@ -183,7 +220,7 @@ export class WalletService {
         },
       });
 
-      // 3️⃣ Mark request approved
+      // Mark request approved
       await tx.withdrawalRequest.update({
         where: { id: request.id },
         data: {
@@ -193,7 +230,7 @@ export class WalletService {
         },
       });
 
-      // 4️⃣ Audit log
+      // Audit log
       await tx.auditLog.create({
         data: {
           userId: adminId,
@@ -212,7 +249,7 @@ export class WalletService {
   }
 
   /* =====================================================
-     ADMIN - Reject Withdrawal
+     STATE_ADMIN - Reject Withdrawal
   ===================================================== */
   static async rejectWithdrawal(
     requestId: string,

@@ -12,7 +12,10 @@ import publicRoutes from '../modules/public/public.routes';
 
 import suspensionRoutes from '../modules/governance/suspension.routes';
 import founderVisibilityRoutes from '../modules/governance/founder-visibility.routes';
+import systemControlRoutes from '../modules/governance/system-control.routes'; // ✅ Phase 8
+
 import refundRoutes from '../modules/refund/refund.routes'; // ✅ Phase 5B
+import paymentWebhookRoutes from '../modules/payment/payment.webhook.routes';
 
 import { ApiResponse } from '../core/ApiResponse';
 
@@ -37,6 +40,12 @@ router.use('/auth', authRoutes);
 router.use('/otp', otpRoutes);
 
 ///////////////////////////////////////////////////////
+// PAYMENTS & WEBHOOKS
+///////////////////////////////////////////////////////
+
+router.use('/payments', paymentWebhookRoutes);
+
+///////////////////////////////////////////////////////
 // CORE USER MODULES
 ///////////////////////////////////////////////////////
 
@@ -55,7 +64,18 @@ router.use('/refunds', refundRoutes);
 ///////////////////////////////////////////////////////
 
 router.use('/suspensions', suspensionRoutes);
+
+///////////////////////////////////////////////////////
+// FOUNDER VISIBILITY
+///////////////////////////////////////////////////////
+
 router.use('/governance', founderVisibilityRoutes);
+
+///////////////////////////////////////////////////////
+// PHASE 8 - SYSTEM CONTROL (FOUNDER EMERGENCY CONTROLS)
+///////////////////////////////////////////////////////
+
+router.use('/governance/system', systemControlRoutes);
 
 ///////////////////////////////////////////////////////
 // SUPPORT
@@ -65,7 +85,7 @@ router.use('/tickets', ticketRoutes);
 router.use('/notifications', notificationRoutes);
 
 ///////////////////////////////////////////////////////
-// ADMIN PANEL
+// STATE_ADMIN PANEL
 ///////////////////////////////////////////////////////
 
 router.use('/admin', adminRoutes);

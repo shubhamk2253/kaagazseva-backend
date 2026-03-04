@@ -36,24 +36,27 @@ export class RazorpayProvider {
   }
 
   //////////////////////////////////////////////////////
-  // SINGLETON
+  // SINGLETON INSTANCE
   //////////////////////////////////////////////////////
 
   private static getInstance(): Razorpay {
+
     if (!this.instance) {
+
       this.validateConfig();
 
       this.instance = new Razorpay({
         key_id: env.RAZORPAY_KEY_ID,
         key_secret: env.RAZORPAY_KEY_SECRET,
       });
+
     }
 
     return this.instance;
   }
 
   //////////////////////////////////////////////////////
-  // CREATE ORDER
+  // CREATE PAYMENT ORDER
   //////////////////////////////////////////////////////
 
   static async createOrder(
@@ -72,9 +75,19 @@ export class RazorpayProvider {
     try {
 
       const order = await this.getInstance().orders.create({
-        amount: Math.round(amountInRupees * 100),
+
+        amount: Math.round(amountInRupees * 100), // INR → paisa
         currency: 'INR',
         receipt,
+
+        //////////////////////////////////////////////////////
+        // IMPORTANT: Attach transaction reference
+        //////////////////////////////////////////////////////
+
+        notes: {
+          transactionId: receipt,
+        },
+
       });
 
       logger.info(
@@ -84,8 +97,14 @@ export class RazorpayProvider {
       return order;
 
     } catch (error) {
+
       logger.error(`Razorpay Order Creation Error → ${error}`);
-      throw new AppError('Failed to initialize payment gateway', 500);
+
+      throw new AppError(
+        'Failed to initialize payment gateway',
+        500
+      );
+
     }
   }
 
@@ -119,13 +138,19 @@ export class RazorpayProvider {
       );
 
     } catch (error) {
+
       logger.error(`Signature Verification Error → ${error}`);
-      throw new AppError('Payment verification failed', 400);
+
+      throw new AppError(
+        'Payment verification failed',
+        400
+      );
+
     }
   }
 
   //////////////////////////////////////////////////////
-  // VERIFY WEBHOOK SIGNATURE (NEW)
+  // VERIFY WEBHOOK SIGNATURE
   //////////////////////////////////////////////////////
 
   static verifyWebhookSignature(
@@ -158,8 +183,14 @@ export class RazorpayProvider {
       return isValid;
 
     } catch (error) {
+
       logger.error(`Webhook Signature Verification Error → ${error}`);
-      throw new AppError('Webhook verification failed', 400);
+
+      throw new AppError(
+        'Webhook verification failed',
+        400
+      );
+
     }
   }
 }

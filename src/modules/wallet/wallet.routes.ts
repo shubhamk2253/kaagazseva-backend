@@ -76,7 +76,7 @@ router.post(
 );
 
 /* =====================================================
-   🏛 ADMIN WITHDRAWAL GOVERNANCE
+   🏛 STATE_ADMIN WITHDRAWAL GOVERNANCE
 ===================================================== */
 
 /**
