@@ -289,10 +289,9 @@ model Application {
   assignmentDeadline DateTime?
   assignedAt         DateTime?
   completedAt        DateTime?
-  acceptedAt      DateTime?
-  manualReview    Boolean   @default(false)
-  escalationLevel Int       @default(0)
-
+  acceptedAt         DateTime?
+  manualReview       Boolean   @default(false)
+  escalationLevel    Int       @default(0)
 
   deliveryAddress String?
   customerLat     Float?
@@ -583,29 +582,29 @@ model Otp {
 }
 
 model SuspensionCase {
-  id            String           @id @default(uuid())
-  userId        String
-  user          User             @relation("UserSuspensions", fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation("UserSuspensions", fields: [userId], references: [id], onDelete: Cascade)
 
   initiatedById String
-  initiatedBy   User             @relation("SuspensionInitiator", fields: [initiatedById], references: [id])
+  initiatedBy   User   @relation("SuspensionInitiator", fields: [initiatedById], references: [id])
 
-  status        SuspensionStatus
-  level         Int              @default(0)
+  status SuspensionStatus
+  level  Int              @default(0)
 
-  reason        String
-  evidence      Json?
+  reason   String
+  evidence Json?
 
   appealAt      DateTime?
   appealMessage String?
 
-  createdAt     DateTime         @default(now())
+  createdAt DateTime @default(now())
 
   escalatedToId String?
-  escalatedTo   User?            @relation("EscalatedTo", fields: [escalatedToId], references: [id])
+  escalatedTo   User?   @relation("EscalatedTo", fields: [escalatedToId], references: [id])
 
-  resolvedById  String?
-  resolvedBy    User?            @relation("ResolvedBy", fields: [resolvedById], references: [id])
+  resolvedById String?
+  resolvedBy   User?   @relation("ResolvedBy", fields: [resolvedById], references: [id])
 }
 
 model Notification {
@@ -627,17 +626,17 @@ model AuditLog {
   resourceType String
   resourceId   String?
 
-  method      String?
-  path        String?
-  oldData     Json?
-  newData     Json?
-  ip          String?
-  userAgent   String?
-  requestId   String?
-  statusCode  Int?
-  success     Boolean? @default(true)
+  method     String?
+  path       String?
+  oldData    Json?
+  newData    Json?
+  ip         String?
+  userAgent  String?
+  requestId  String?
+  statusCode Int?
+  success    Boolean? @default(true)
 
-  createdAt    DateTime    @default(now())
+  createdAt DateTime @default(now())
 }
 
 model PaymentWebhookEvent {

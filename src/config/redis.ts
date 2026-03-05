@@ -4,11 +4,6 @@ import logger from '../core/logger';
 
 /**
  * KAAGAZSEVA - Redis Layer
- * Supports:
- * - OTP storage
- * - Rate limiting
- * - BullMQ queues
- * - Assignment locks
  */
 
 export const redis = new Redis(env.REDIS_URL, {
@@ -19,7 +14,7 @@ export const redis = new Redis(env.REDIS_URL, {
 
   enableReadyCheck: false,
 
-  enableOfflineQueue: false,
+  enableOfflineQueue: true, // FIXED
 
   connectTimeout: 10000,
 
@@ -27,7 +22,7 @@ export const redis = new Redis(env.REDIS_URL, {
 
     if (times > 20) {
       logger.error('Redis retry attempts exceeded');
-      return null; // stop retrying
+      return null;
     }
 
     const delay = Math.min(times * 200, 5000);
