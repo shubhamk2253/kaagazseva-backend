@@ -1,17 +1,30 @@
 import winston from 'winston';
+import fs from 'fs';
+import path from 'path';
 import { TransformableInfo } from 'logform';
+import DailyRotateFile from 'winston-daily-rotate-file';
 import { env } from '../config/env';
 
 /**
  * KAAGAZSEVA - Structured Logging System
- * Production-ready logging with JSON support + request tracing.
  */
 
 const isDev = env.NODE_ENV === 'development';
 
 /* =====================================================
+   Ensure Logs Directory Exists
+===================================================== */
+
+const logDir = path.resolve('logs');
+
+if (!fs.existsSync(logDir)) {
+  fs.mkdirSync(logDir, { recursive: true });
+}
+
+/* =====================================================
    Custom Log Levels
 ===================================================== */
+
 const levels = {
   error: 0,
   warn: 1,
@@ -31,24 +44,28 @@ const colors = {
 winston.addColors(colors);
 
 /* =====================================================
-   Development Format (Readable)
+   Development Format
 ===================================================== */
+
 const devFormat = winston.format.combine(
   winston.format.colorize({ all: true }),
   winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
   winston.format.errors({ stack: true }),
   winston.format.printf((info: TransformableInfo) => {
+
     const { timestamp, level, message, stack, ...meta } = info;
 
     return `${timestamp} ${level}: ${stack || message} ${
       Object.keys(meta).length ? JSON.stringify(meta) : ''
     }`;
+
   })
 );
 
 /* =====================================================
-   Production Format (JSON)
+   Production Format
 ===================================================== */
+
 const prodFormat = winston.format.combine(
   winston.format.timestamp(),
   winston.format.errors({ stack: true }),
@@ -58,31 +75,70 @@ const prodFormat = winston.format.combine(
 /* =====================================================
    Transports
 ===================================================== */
+
 const transports: winston.transport[] = [
+
   new winston.transports.Console({
     format: isDev ? devFormat : prodFormat,
   }),
+
 ];
 
-// Write errors to file only in production
 if (!isDev) {
+
   transports.push(
-    new winston.transports.File({
-      filename: 'logs/error.log',
+
+    new DailyRotateFile({
+      filename: path.join(logDir, 'combined-%DATE%.log'),
+      datePattern: 'YYYY-MM-DD',
+      maxSize: '20m',
+      maxFiles: '14d',
+      format: prodFormat,
+    }),
+
+    new DailyRotateFile({
+      filename: path.join(logDir, 'error-%DATE%.log'),
       level: 'error',
+      datePattern: 'YYYY-MM-DD',
+      maxSize: '20m',
+      maxFiles: '30d',
       format: prodFormat,
     })
+
   );
+
 }
 
 /* =====================================================
    Logger Instance
 ===================================================== */
+
 const logger = winston.createLogger({
+
   level: isDev ? 'debug' : 'info',
+
   levels,
+
   transports,
+
   exitOnError: false,
+
+  exceptionHandlers: [
+
+    new winston.transports.File({
+      filename: path.join(logDir, 'exceptions.log'),
+    }),
+
+  ],
+
+  rejectionHandlers: [
+
+    new winston.transports.File({
+      filename: path.join(logDir, 'rejections.log'),
+    }),
+
+  ],
+
 });
 
 export default logger;

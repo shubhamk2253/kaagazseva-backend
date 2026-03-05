@@ -10,16 +10,11 @@ import logger from '../../core/logger';
 
 /**
  * KAAGAZSEVA - Application Controller
- * Correct Flow:
- * 1️⃣ Draft Creation (Secure)
- * 2️⃣ Upload Documents
- * 3️⃣ Payment (separate module)
  */
 export class ApplicationController {
 
   //////////////////////////////////////////////////////
-  // 1️⃣ CREATE DRAFT (PHASE 1 HARDENED)
-  // POST /api/v1/applications/draft
+  // CREATE DRAFT
   //////////////////////////////////////////////////////
 
   static createDraft = asyncHandler(
@@ -37,33 +32,17 @@ export class ApplicationController {
         deliveryAddress,
       } = req.body;
 
-      //////////////////////////////////////////////////////
-      // REQUIRED FIELD VALIDATION
-      //////////////////////////////////////////////////////
-
       if (!serviceId || !stateId || !pincode || !mode) {
         throw new AppError('Missing required fields', 400);
       }
-
-      //////////////////////////////////////////////////////
-      // SERVICE MODE VALIDATION
-      //////////////////////////////////////////////////////
 
       if (!Object.values(ServiceMode).includes(mode)) {
         throw new AppError('Invalid service mode', 400);
       }
 
-      //////////////////////////////////////////////////////
-      // PINCODE FORMAT VALIDATION
-      //////////////////////////////////////////////////////
-
       if (!/^[0-9]{6}$/.test(pincode)) {
         throw new AppError('Invalid pincode format', 400);
       }
-
-      //////////////////////////////////////////////////////
-      // CALL SERVICE LAYER
-      //////////////////////////////////////////////////////
 
       const result = await ApplicationService.createDraft(
         userId,
@@ -92,8 +71,7 @@ export class ApplicationController {
   );
 
   //////////////////////////////////////////////////////
-  // 2️⃣ UPLOAD DOCUMENTS TO DRAFT
-  // POST /api/v1/applications/:id/documents
+  // UPLOAD DOCUMENTS
   //////////////////////////////////////////////////////
 
   static uploadDocuments = asyncHandler(
@@ -107,27 +85,23 @@ export class ApplicationController {
         throw new AppError('At least one document required', 400);
       }
 
-      const uploadedDocuments: Record<string, any> = {};
-
-      for (const file of files) {
-        const uploadResult = await StorageService.uploadDocument(
-          file,
-          'applications',
-          userId
-        );
-
-        uploadedDocuments[file.originalname] = {
-          s3Key: uploadResult.key,
-          fileName: file.originalname,
-          uploadedAt: new Date().toISOString(),
-        };
-      }
-
-      const updated = await ApplicationService.attachDocuments(
-        id,
-        userId,
-        uploadedDocuments
+      const uploads = await Promise.all(
+        files.map(file =>
+          StorageService.uploadDocument(file, 'applications', userId)
+        )
       );
+
+      const documents = uploads.map((upload, index) => ({
+        name: files[index].originalname,
+        fileUrl: upload.key,
+      }));
+
+      const updated =
+        await ApplicationService.attachDocuments(
+          id,
+          userId,
+          documents
+        );
 
       logger.info(
         `Documents uploaded for draft ${id} by ${userId}`
@@ -153,7 +127,7 @@ export class ApplicationController {
       const filters = {
         customerId: userId,
         status: req.query.status as ApplicationStatus | undefined,
-        serviceType: req.query.serviceType as string | undefined,
+        serviceId: req.query.serviceId as string | undefined,
         page: Number(req.query.page) || 1,
         limit: Number(req.query.limit) || 10,
       };
@@ -170,7 +144,7 @@ export class ApplicationController {
   );
 
   //////////////////////////////////////////////////////
-  // STATE_ADMIN / AGENT LIST
+  // STAFF DASHBOARD
   //////////////////////////////////////////////////////
 
   static listApplications = asyncHandler(
@@ -178,7 +152,7 @@ export class ApplicationController {
 
       const filters = {
         status: req.query.status as ApplicationStatus | undefined,
-        serviceType: req.query.serviceType as string | undefined,
+        serviceId: req.query.serviceId as string | undefined,
         agentId: req.query.agentId as string | undefined,
         page: Number(req.query.page) || 1,
         limit: Number(req.query.limit) || 10,
@@ -196,7 +170,7 @@ export class ApplicationController {
   );
 
   //////////////////////////////////////////////////////
-  // SECURE DETAIL VIEW
+  // APPLICATION DETAIL
   //////////////////////////////////////////////////////
 
   static getDetails = asyncHandler(
@@ -221,7 +195,7 @@ export class ApplicationController {
   );
 
   //////////////////////////////////////////////////////
-  // STATUS UPDATE
+  // UPDATE STATUS
   //////////////////////////////////////////////////////
 
   static updateStatus = asyncHandler(

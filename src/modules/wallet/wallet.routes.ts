@@ -10,63 +10,34 @@ import { apiLimiter } from '../../middleware/rateLimit.middleware';
  * KAAGAZSEVA - Wallet Routes
  * Secure financial operations layer
  */
+
 const router = Router();
 
-/* =====================================================
-   🔐 GLOBAL PROTECTION
-===================================================== */
+///////////////////////////////////////////////////////
+// GLOBAL PROTECTION
+///////////////////////////////////////////////////////
 
-// All wallet routes require authentication
 router.use(requireAuth);
 
-/* =====================================================
-   👤 CITIZEN + AGENT ROUTES
-===================================================== */
+///////////////////////////////////////////////////////
+// USER ROUTES
+///////////////////////////////////////////////////////
 
-/**
- * GET /api/v1/wallet/balance
- */
 router.get(
   '/balance',
   WalletController.getBalance
 );
 
-/**
- * GET /api/v1/wallet/transactions
- */
 router.get(
   '/transactions',
   validate(walletSchema.filterTransactions),
   WalletController.getTransactions
 );
 
-/**
- * POST /api/v1/wallet/topup
- */
-router.post(
-  '/topup',
-  apiLimiter,
-  validate(walletSchema.topUp),
-  WalletController.topUp
-);
+///////////////////////////////////////////////////////
+// AGENT ROUTES
+///////////////////////////////////////////////////////
 
-/**
- * POST /api/v1/wallet/pay
- */
-router.post(
-  '/pay',
-  apiLimiter,
-  validate(walletSchema.processPayment),
-  WalletController.payForService
-);
-
-/* =====================================================
-   🧑‍💼 AGENT ONLY ROUTES
-===================================================== */
-
-/**
- * POST /api/v1/wallet/withdraw
- */
 router.post(
   '/withdraw',
   apiLimiter,
@@ -75,13 +46,10 @@ router.post(
   WalletController.withdraw
 );
 
-/* =====================================================
-   🏛 STATE_ADMIN WITHDRAWAL GOVERNANCE
-===================================================== */
+///////////////////////////////////////////////////////
+// STATE_ADMIN GOVERNANCE
+///////////////////////////////////////////////////////
 
-/**
- * POST /api/v1/wallet/withdraw/:id/approve
- */
 router.post(
   '/withdraw/:id/approve',
   apiLimiter,
@@ -90,9 +58,6 @@ router.post(
   WalletController.approveWithdrawal
 );
 
-/**
- * POST /api/v1/wallet/withdraw/:id/reject
- */
 router.post(
   '/withdraw/:id/reject',
   apiLimiter,

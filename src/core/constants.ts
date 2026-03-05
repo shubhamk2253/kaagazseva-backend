@@ -7,10 +7,15 @@
    USER ROLES
 ========================================================= */
 
-export enum UserRole {
-  STATE_ADMIN = 'STATE_ADMIN',
-  AGENT = 'AGENT',
-  CUSTOMER = 'CUSTOMER',
+
+/* =========================================================
+   SERVICE MODES
+========================================================= */
+
+export enum ServiceMode {
+  DIGITAL = 'DIGITAL',
+  DOORSTEP = 'DOORSTEP',
+  FULL_SERVICE = 'FULL_SERVICE',
 }
 
 /* =========================================================
@@ -30,7 +35,7 @@ export enum ApplicationStatus {
 }
 
 /* =========================================================
-   WALLET
+   WALLET & TRANSACTIONS
 ========================================================= */
 
 export enum TransactionType {
@@ -60,7 +65,7 @@ export enum TicketStatus {
 }
 
 /* =========================================================
-   AUDIT EVENTS (For Compliance Logging)
+   AUDIT EVENTS (Compliance Logging)
 ========================================================= */
 
 export enum AuditEvent {
@@ -78,13 +83,72 @@ export enum AuditEvent {
 ========================================================= */
 
 export const SYSTEM_LIMITS = {
+
+  // File Uploads
   MAX_FILE_SIZE_MB: 5,
   MAX_FILES_PER_APPLICATION: 10,
+
+  // OTP
   OTP_EXPIRY_SECONDS: 300,
   MAX_OTP_ATTEMPTS: 3,
+
+  // Authentication
   ACCESS_TOKEN_EXPIRY_MINUTES: 15,
   REFRESH_TOKEN_EXPIRY_DAYS: 7,
+
+  // Wallet
   MAX_WITHDRAWALS_PER_DAY: 3,
+};
+
+/* =========================================================
+   SECURITY RULES
+========================================================= */
+
+export const SECURITY = {
+  MAX_LOGIN_ATTEMPTS: 5,
+  ACCOUNT_LOCK_MINUTES: 30,
+};
+
+/* =========================================================
+   ESCROW ENGINE
+========================================================= */
+
+export const ESCROW = {
+
+  // Escrow hold before release
+  AUTO_RELEASE_HOURS: 24,
+
+  // Cron job interval
+  CRON_INTERVAL_MINUTES: 5,
+
+};
+
+/* =========================================================
+   REFUND RULES
+========================================================= */
+
+export const REFUND = {
+
+  // Refund limits
+  MAX_REFUND_PERCENTAGE: 100,
+
+  // Minimum refund amount
+  MIN_REFUND_AMOUNT: 100, // ₹1
+
+};
+
+/* =========================================================
+   ASSIGNMENT ENGINE
+========================================================= */
+
+export const ASSIGNMENT = {
+
+  MAX_ACTIVE_CASES_PER_AGENT: 25,
+
+  ASSIGNMENT_ACCEPT_TIME_MINUTES: 60,
+
+  GEO_SEARCH_RADIUS_KM: 25,
+
 };
 
 /* =========================================================
@@ -102,18 +166,22 @@ export const PAGINATION = {
 ========================================================= */
 
 export const RATE_LIMITS = {
+
   GLOBAL: {
     WINDOW_MS: 15 * 60 * 1000,
     MAX: 300,
   },
+
   AUTH: {
     WINDOW_MS: 60 * 60 * 1000,
     MAX: 5,
   },
+
   CRITICAL: {
     WINDOW_MS: 10 * 60 * 1000,
     MAX: 20,
   },
+
 };
 
 /* =========================================================
@@ -121,6 +189,7 @@ export const RATE_LIMITS = {
 ========================================================= */
 
 export const MESSAGES = {
+
   AUTH: {
     OTP_SENT: 'OTP sent successfully.',
     INVALID_OTP: 'Invalid or expired OTP.',
@@ -145,4 +214,5 @@ export const MESSAGES = {
     UNAUTHORIZED: 'You are not authorized to access this resource.',
     NOT_FOUND: 'Resource not found.',
   },
+
 };

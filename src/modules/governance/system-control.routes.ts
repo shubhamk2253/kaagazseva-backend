@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { requireAuth, requireRole } from '../../middleware/auth.middleware';
+import { apiLimiter } from '../../middleware/rateLimit.middleware';
 import { UserRole } from '@prisma/client';
 import { SystemControlController } from './system-control.controller';
 
@@ -11,13 +12,19 @@ import { SystemControlController } from './system-control.controller';
 const router = Router();
 
 //////////////////////////////////////////////////////
+// GLOBAL SECURITY
+//////////////////////////////////////////////////////
+
+router.use(requireAuth);
+router.use(requireRole([UserRole.FOUNDER]));
+
+//////////////////////////////////////////////////////
 // GET SYSTEM STATUS
 //////////////////////////////////////////////////////
 
 router.get(
   '/system-status',
-  requireAuth,
-  requireRole([UserRole.FOUNDER]),
+  apiLimiter,
   SystemControlController.getStatus
 );
 
@@ -27,8 +34,7 @@ router.get(
 
 router.post(
   '/freeze/payments',
-  requireAuth,
-  requireRole([UserRole.FOUNDER]),
+  apiLimiter,
   SystemControlController.freezePayments
 );
 
@@ -38,8 +44,7 @@ router.post(
 
 router.post(
   '/freeze/refunds',
-  requireAuth,
-  requireRole([UserRole.FOUNDER]),
+  apiLimiter,
   SystemControlController.freezeRefunds
 );
 
@@ -49,8 +54,7 @@ router.post(
 
 router.post(
   '/freeze/withdrawals',
-  requireAuth,
-  requireRole([UserRole.FOUNDER]),
+  apiLimiter,
   SystemControlController.freezeWithdrawals
 );
 
@@ -60,8 +64,7 @@ router.post(
 
 router.post(
   '/unfreeze',
-  requireAuth,
-  requireRole([UserRole.FOUNDER]),
+  apiLimiter,
   SystemControlController.unfreezeSystem
 );
 

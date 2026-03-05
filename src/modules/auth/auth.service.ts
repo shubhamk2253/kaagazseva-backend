@@ -1,6 +1,6 @@
 import { AuthRepository } from './auth.repository';
 import { JwtService } from '../../infrastructure/jwt/jwt.service';
-import { OtpService } from '../../infrastructure/otp/otp.service';
+import { OtpService } from '../../services/otp.service';
 import { OtpProvider } from '../../infrastructure/otp/otp.provider';
 import { AppError } from '../../core/AppError';
 import { UserRole } from '@prisma/client';
@@ -8,14 +8,18 @@ import logger from '../../core/logger';
 
 /**
  * KAAGAZSEVA - Auth Service
- * Core business logic for OTP authentication & session management.
  */
+
 export class AuthService {
 
   /* =====================================================
      STEP 1 — Request OTP
   ===================================================== */
   static async requestOtp(phoneNumber: string) {
+
+    if (!phoneNumber) {
+      throw new AppError('Phone number required', 400);
+    }
 
     const otp = OtpService.generateOTP();
 
@@ -31,36 +35,51 @@ export class AuthService {
   ===================================================== */
   static async verifyOtp(phoneNumber: string, submittedOtp: string) {
 
-    const isValid = await OtpService.verifyOTP(phoneNumber, submittedOtp);
+    const isValid =
+      await OtpService.verifyOTP(phoneNumber, submittedOtp);
 
     if (!isValid) {
       throw new AppError('Invalid OTP', 400);
     }
 
-    let user = await AuthRepository.findByPhone(phoneNumber);
+    // 🔒 Prevent OTP reuse
+    await OtpService.clearOTP(phoneNumber);
 
-    // 🔥 FIXED ROLE
+    let user =
+      await AuthRepository.findByPhone(phoneNumber);
+
     if (!user) {
-      user = await AuthRepository.createWithWallet(
-        phoneNumber,
-        UserRole.CUSTOMER
-      );
 
-      logger.info(`New customer registered: ${phoneNumber}`);
+      user =
+        await AuthRepository.createWithWallet(
+          phoneNumber,
+          UserRole.CUSTOMER
+        );
+
+      logger.info({
+        message: 'New customer registered',
+        phoneNumber
+      });
     }
 
     if (!user.isActive) {
-      throw new AppError('Account suspended. Contact support.', 403);
+      throw new AppError(
+        'Account suspended. Contact support.',
+        403
+      );
     }
 
     const payload = {
       userId: user.id,
-      role: user.role, // Prisma UserRole (correct type)
+      role: user.role,
       phoneNumber: user.phoneNumber,
     };
 
-    const accessToken = JwtService.signAccessToken(payload);
-    const refreshToken = JwtService.signRefreshToken(payload);
+    const accessToken =
+      JwtService.signAccessToken(payload);
+
+    const refreshToken =
+      JwtService.signRefreshToken(payload);
 
     return {
       user: {
@@ -68,7 +87,7 @@ export class AuthService {
         phoneNumber: user.phoneNumber,
         role: user.role,
         name: user.name,
-        walletBalance: user.wallet?.balance ?? 0,
+        walletBalance: Number(user.wallet?.balance ?? 0),
       },
       tokens: {
         accessToken,
@@ -82,9 +101,11 @@ export class AuthService {
   ===================================================== */
   static async refreshSession(refreshToken: string) {
 
-    const decoded = JwtService.verifyRefreshToken(refreshToken);
+    const decoded =
+      JwtService.verifyRefreshToken(refreshToken);
 
-    const user = await AuthRepository.findById(decoded.userId);
+    const user =
+      await AuthRepository.findById(decoded.userId);
 
     if (!user || !user.isActive) {
       throw new AppError('User no longer active', 401);
@@ -96,7 +117,8 @@ export class AuthService {
       phoneNumber: user.phoneNumber,
     };
 
-    const newAccessToken = JwtService.signAccessToken(payload);
+    const newAccessToken =
+      JwtService.signAccessToken(payload);
 
     return { accessToken: newAccessToken };
   }

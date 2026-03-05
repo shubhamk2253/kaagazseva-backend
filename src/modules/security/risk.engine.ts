@@ -1,8 +1,16 @@
 import { prisma } from '../../config/database';
+import logger from '../../core/logger';
+import {
+  TransactionStatus,
+  TransactionType,
+} from '@prisma/client';
 
 /**
  * KAAGAZSEVA - Financial Risk Score Engine
  */
+
+const HIGH_VALUE_THRESHOLD = 10000;
+const PAYMENT_SPIKE_WINDOW = 5 * 60 * 1000;
 
 export class RiskEngine {
 
@@ -18,68 +26,90 @@ export class RiskEngine {
 
     let riskScore = 0;
 
-    //////////////////////////////////////////////////////
-    // 1️⃣ High Value Payment
-    //////////////////////////////////////////////////////
+    try {
 
-    if (amount > 10000) {
-      riskScore += 20;
-    }
+      //////////////////////////////////////////////////////
+      // 1️⃣ High Value Payment
+      //////////////////////////////////////////////////////
 
-    //////////////////////////////////////////////////////
-    // 2️⃣ Payment Spike
-    //////////////////////////////////////////////////////
+      if (amount > HIGH_VALUE_THRESHOLD) {
+        riskScore += 20;
+      }
 
-    const recentPayments = await prisma.transaction.count({
-      where: {
-        userId,
-        status: 'SUCCESS',
-        createdAt: {
-          gte: new Date(Date.now() - 5 * 60 * 1000),
+      //////////////////////////////////////////////////////
+      // 2️⃣ Payment Spike
+      //////////////////////////////////////////////////////
+
+      const recentPayments = await prisma.transaction.count({
+        where: {
+          userId,
+          status: TransactionStatus.SUCCESS,
+          createdAt: {
+            gte: new Date(Date.now() - PAYMENT_SPIKE_WINDOW),
+          },
         },
-      },
-    });
+      });
 
-    if (recentPayments >= 3) {
-      riskScore += 25;
-    }
+      if (recentPayments >= 3) {
+        riskScore += 25;
+      }
 
-    //////////////////////////////////////////////////////
-    // 3️⃣ Refund History
-    //////////////////////////////////////////////////////
+      //////////////////////////////////////////////////////
+      // 3️⃣ Refund History
+      //////////////////////////////////////////////////////
 
-    const refunds = await prisma.transaction.count({
-      where: {
+      const refunds = await prisma.transaction.count({
+        where: {
+          userId,
+          type: TransactionType.REFUND,
+        },
+      });
+
+      if (refunds >= 2) {
+        riskScore += 30;
+      }
+
+      //////////////////////////////////////////////////////
+      // 4️⃣ Clamp Score
+      //////////////////////////////////////////////////////
+
+      if (riskScore > 100) {
+        riskScore = 100;
+      }
+
+      //////////////////////////////////////////////////////
+      // STORE RISK SCORE
+      //////////////////////////////////////////////////////
+
+      await prisma.application.update({
+        where: { id: applicationId },
+        data: {
+          riskScore,
+          manualReview: riskScore >= 60,
+        },
+      });
+
+      logger.info({
+        event: 'RISK_SCORE_CALCULATED',
         userId,
-        type: 'REFUND',
-      },
-    });
-
-    if (refunds >= 2) {
-      riskScore += 30;
-    }
-
-    //////////////////////////////////////////////////////
-    // 4️⃣ Clamp Score
-    //////////////////////////////////////////////////////
-
-    if (riskScore > 100) {
-      riskScore = 100;
-    }
-
-    //////////////////////////////////////////////////////
-    // Store Risk Score
-    //////////////////////////////////////////////////////
-
-    await prisma.application.update({
-      where: { id: applicationId },
-      data: {
+        applicationId,
         riskScore,
-        manualReview: riskScore >= 60,
-      },
-    });
+      });
 
-    return riskScore;
+      return riskScore;
+
+    } catch (error) {
+
+      logger.error({
+        event: 'RISK_ENGINE_FAILED',
+        userId,
+        applicationId,
+        error,
+      });
+
+      // Fail safely
+      return riskScore;
+    }
 
   }
 

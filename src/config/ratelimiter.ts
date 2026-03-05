@@ -1,33 +1,41 @@
 import rateLimit from 'express-rate-limit';
 import { RedisStore } from 'rate-limit-redis';
 import type { Request } from 'express';
-import {redis} from './redis';
+import { redis } from '../config/redis';
 import { AppError } from '../core/AppError';
 
 /**
  * Redis Store Adapter
- * Proper typing wrapper to avoid ts-ignore hacks
  */
+
 const redisStore = new RedisStore({
-  sendCommand: (...args: string[]) => {
+  sendCommand: (...args: (string | number)[]) => {
     return (redis as any).call(...args);
   },
 });
 
+/**
+ * Normalize IP (remove IPv6 prefix)
+ */
+
+function getClientIp(req: Request): string {
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+  return ip.replace(/^::ffff:/, '');
+}
+
 /* =========================================================
-   1️⃣ GLOBAL LIMITER (All Public APIs)
+   GLOBAL LIMITER
 ========================================================= */
 
 export const globalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 300, // Increased for national scale
+  windowMs: 15 * 60 * 1000,
+  max: 300,
   standardHeaders: true,
   legacyHeaders: false,
   store: redisStore,
 
   keyGenerator: (req: Request) => {
-    // Prefer real IP behind proxies
-    return req.ip || req.socket.remoteAddress || 'unknown';
+    return getClientIp(req);
   },
 
   handler: (_req, _res, next) => {
@@ -41,15 +49,25 @@ export const globalLimiter = rateLimit({
 });
 
 /* =========================================================
-   2️⃣ AUTH LIMITER (OTP + Login)
+   AUTH LIMITER
 ========================================================= */
 
 export const authLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 5, // 5 OTP attempts per hour per IP
+  windowMs: 60 * 60 * 1000,
+  max: 5,
   standardHeaders: true,
   legacyHeaders: false,
   store: redisStore,
+
+  keyGenerator: (req: Request) => {
+    const ip = getClientIp(req);
+    const identifier =
+      (req.body?.phoneNumber as string) ||
+      (req.body?.email as string) ||
+      'anonymous';
+
+    return `${identifier}_${ip}`;
+  },
 
   handler: (_req, _res, next) => {
     next(
@@ -62,18 +80,19 @@ export const authLimiter = rateLimit({
 });
 
 /* =========================================================
-   3️⃣ CRITICAL LIMITER (Financial / Withdrawals)
+   CRITICAL LIMITER
 ========================================================= */
 
 export const criticalLimiter = rateLimit({
-  windowMs: 10 * 60 * 1000, // 10 minutes
+  windowMs: 10 * 60 * 1000,
   max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
   store: redisStore,
 
   keyGenerator: (req: Request) => {
-    // If logged in, rate limit per user instead of IP
-    const userId = (req as any).user?.id;
-    return userId || req.ip;
+    const userId = (req as any).user?.userId;
+    return userId || getClientIp(req);
   },
 
   handler: (_req, _res, next) => {

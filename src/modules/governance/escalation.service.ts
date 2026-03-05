@@ -1,12 +1,14 @@
 import { prisma } from '../../config/database';
 import { AppError } from '../../core/AppError';
-import { SuspensionStatus, UserRole } from '@prisma/client';
+import { SuspensionStatus, UserRole, AuditAction } from '@prisma/client';
 import logger from '../../core/logger';
+
+const ESCALATION_REVIEW_HOURS = 48;
 
 export class EscalationService {
 
   //////////////////////////////////////////////////////
-  // ESCALATE CASE (STRICT GOVERNANCE)
+  // ESCALATE CASE
   //////////////////////////////////////////////////////
 
   static async escalate(
@@ -24,20 +26,22 @@ export class EscalationService {
     }
 
     //////////////////////////////////////////////////////
-    // Status Validation
+    // STATUS VALIDATION
     //////////////////////////////////////////////////////
 
-    if (
-      suspensionCase.status !== SuspensionStatus.UNDER_REVIEW &&
-      suspensionCase.status !== SuspensionStatus.CONFIRMED &&
-      suspensionCase.status !== SuspensionStatus.ESCALATED &&
-      suspensionCase.status !== SuspensionStatus.AUTO_ESCALATED
-    ) {
+    const allowedStatuses: SuspensionStatus[] = [
+      SuspensionStatus.UNDER_REVIEW,
+      SuspensionStatus.CONFIRMED,
+      SuspensionStatus.ESCALATED,
+      SuspensionStatus.AUTO_ESCALATED,
+    ];
+
+    if (!allowedStatuses.includes(suspensionCase.status)) {
       throw new AppError('Case not eligible for escalation', 400);
     }
 
     //////////////////////////////////////////////////////
-    // Prevent Over Escalation
+    // PREVENT OVER ESCALATION
     //////////////////////////////////////////////////////
 
     if (suspensionCase.level >= 3) {
@@ -45,7 +49,7 @@ export class EscalationService {
     }
 
     //////////////////////////////////////////////////////
-    // Authority Validation
+    // ESCALATOR VALIDATION
     //////////////////////////////////////////////////////
 
     const escalator = await prisma.user.findUnique({
@@ -56,24 +60,28 @@ export class EscalationService {
       throw new AppError('Escalator not found', 404);
     }
 
-    // Level 1 → only STATE_ADMIN can escalate
     if (
       suspensionCase.level === 1 &&
       escalator.role !== UserRole.STATE_ADMIN
     ) {
-      throw new AppError('Only State Admin can escalate level 1 cases', 403);
+      throw new AppError(
+        'Only State Admin can escalate level 1 cases',
+        403
+      );
     }
 
-    // Level 2 → only FOUNDER can escalate
     if (
       suspensionCase.level === 2 &&
       escalator.role !== UserRole.FOUNDER
     ) {
-      throw new AppError('Only Founder can escalate level 2 cases', 403);
+      throw new AppError(
+        'Only Founder can escalate level 2 cases',
+        403
+      );
     }
 
     //////////////////////////////////////////////////////
-    // Determine Next Level
+    // NEXT LEVEL
     //////////////////////////////////////////////////////
 
     const nextLevel = suspensionCase.level + 1;
@@ -92,13 +100,15 @@ export class EscalationService {
     }
 
     //////////////////////////////////////////////////////
-    // Reset Deadline (New Review Window)
+    // NEW DEADLINE
     //////////////////////////////////////////////////////
 
-    const newDeadline = new Date(Date.now() + 48 * 60 * 60 * 1000);
+    const newDeadline = new Date(
+      Date.now() + ESCALATION_REVIEW_HOURS * 60 * 60 * 1000
+    );
 
     //////////////////////////////////////////////////////
-    // Transaction Update
+    // TRANSACTION
     //////////////////////////////////////////////////////
 
     await prisma.$transaction(async (tx) => {
@@ -124,7 +134,7 @@ export class EscalationService {
       await tx.auditLog.create({
         data: {
           userId: escalatedById,
-          action: 'UPDATE',
+          action: AuditAction.UPDATE,
           resourceType: 'SUSPENSION_ESCALATED',
           resourceId: suspensionCase.userId,
           newData: {
@@ -137,15 +147,24 @@ export class EscalationService {
 
     });
 
-    logger.warn(
-      `Case ${caseId} escalated → Level ${nextLevel} (${escalatedToRole})`
-    );
+    //////////////////////////////////////////////////////
+    // LOGGING
+    //////////////////////////////////////////////////////
+
+    logger.warn({
+      event: 'CASE_ESCALATED',
+      caseId,
+      newLevel: nextLevel,
+      escalatedTo: escalatedToRole,
+      escalatedBy: escalatedById,
+    });
 
     return {
       message: 'Case escalated successfully',
       level: nextLevel,
       escalatedTo: escalatedToRole,
     };
+
   }
 
 }

@@ -6,32 +6,53 @@ import logger from '../core/logger';
 
 /**
  * KAAGAZSEVA - Role Authorization Middleware
- * Strict RBAC enforcement layer.
+ * Enforces strict RBAC permissions.
  *
  * Usage:
- *  authorizeRoles(UserRole.STATE_ADMIN)
- *  authorizeRoles(UserRole.STATE_ADMIN, UserRole.AGENT)
+ *   authorizeRoles(UserRole.STATE_ADMIN)
+ *   authorizeRoles(UserRole.STATE_ADMIN, UserRole.AGENT)
  */
 
 const roleGuard =
   (...allowedRoles: UserRole[]): RequestHandler =>
   (req: RequestWithUser, _res: Response, next: NextFunction) => {
-    // 1️⃣ Failsafe: requireAuth must run before this
+
+    //////////////////////////////////////////////////////
+    // 1️⃣ Authentication Check
+    //////////////////////////////////////////////////////
+
     if (!req.user) {
-      logger.error(
-        `[Security Error] Role middleware used without requireAuth | Path=${req.originalUrl}`
-      );
+
+      logger.error({
+        event: 'RBAC_AUTH_CONTEXT_MISSING',
+        path: req.originalUrl,
+        method: req.method,
+        requestId: req.requestId
+      });
 
       return next(
-        new AppError('Authentication context missing. Access denied.', 401)
+        new AppError(
+          'Authentication context missing. Access denied.',
+          401
+        )
       );
     }
 
-    // 2️⃣ Permission Check
+    //////////////////////////////////////////////////////
+    // 2️⃣ Role Validation
+    //////////////////////////////////////////////////////
+
     if (!allowedRoles.includes(req.user.role)) {
-      logger.warn(
-        `[RBAC Violation] User=${req.user.userId} Role=${req.user.role} Method=${req.method} Path=${req.originalUrl}`
-      );
+
+      logger.warn({
+        event: 'RBAC_ACCESS_DENIED',
+        userId: req.user.userId,
+        role: req.user.role,
+        allowedRoles,
+        path: req.originalUrl,
+        method: req.method,
+        requestId: req.requestId
+      });
 
       return next(
         new AppError(
@@ -41,16 +62,19 @@ const roleGuard =
       );
     }
 
+    //////////////////////////////////////////////////////
     // 3️⃣ Authorized
+    //////////////////////////////////////////////////////
+
     return next();
   };
 
 /**
- * Primary Export (Recommended)
+ * Primary export
  */
 export const authorizeRoles = roleGuard;
 
 /**
- * Backward Compatibility (If older routes use requireRole)
+ * Backward compatibility alias
  */
 export const requireRole = roleGuard;

@@ -1,6 +1,5 @@
 import { prisma } from '../../config/database';
-import { Prisma } from '@prisma/client';
-import { UserRole } from '../../core/constants';
+import { Prisma, UserRole } from '@prisma/client';
 import { UserQueryFilters } from './user.types';
 
 /**
@@ -9,10 +8,12 @@ import { UserQueryFilters } from './user.types';
  */
 export class UserRepository {
 
-  /**
-   * Fetch a single user profile with wallet balance
-   */
+  //////////////////////////////////////////////////////
+  // FIND USER BY ID
+  //////////////////////////////////////////////////////
+
   static async findById(id: string) {
+
     return prisma.user.findUnique({
       where: { id },
       include: {
@@ -21,15 +22,18 @@ export class UserRepository {
         },
       },
     });
+
   }
 
-  /**
-   * Update user profile data
-   */
+  //////////////////////////////////////////////////////
+  // UPDATE USER
+  //////////////////////////////////////////////////////
+
   static async update(
     id: string,
     data: { name?: string; isActive?: boolean }
   ) {
+
     return prisma.user.update({
       where: { id },
       data,
@@ -39,18 +43,36 @@ export class UserRepository {
         },
       },
     });
+
   }
 
-  /**
-   * Advanced Admin Search
-   * Supports filtering by role, status, and partial matches on name/phone.
-   */
+  //////////////////////////////////////////////////////
+  // ADMIN SEARCH USERS
+  //////////////////////////////////////////////////////
+
   static async findAll(filters: UserQueryFilters) {
-    const { role, isActive, search, page = 1, limit = 10 } = filters;
 
-    const skip = (page - 1) * limit;
+    const {
+      role,
+      isActive,
+      search,
+      page = 1,
+      limit = 10,
+    } = filters;
 
-    // Strongly typed where clause
+    //////////////////////////////////////////////////////
+    // SANITIZE PAGINATION
+    //////////////////////////////////////////////////////
+
+    const safePage = Math.max(1, page);
+    const safeLimit = Math.min(50, Math.max(1, limit));
+
+    const skip = (safePage - 1) * safeLimit;
+
+    //////////////////////////////////////////////////////
+    // BUILD WHERE CLAUSE
+    //////////////////////////////////////////////////////
+
     const where: Prisma.UserWhereInput = {};
 
     if (role) {
@@ -61,24 +83,31 @@ export class UserRepository {
       where.isActive = isActive;
     }
 
-    if (search) {
+    if (search?.trim()) {
+
+      const term = search.trim();
+
       where.OR = [
         {
           name: {
-            contains: search,
+            contains: term,
             mode: 'insensitive',
           },
         },
         {
           phoneNumber: {
-            contains: search,
+            contains: term,
           },
         },
       ];
     }
 
-    // Transaction ensures count and data are in sync
+    //////////////////////////////////////////////////////
+    // FETCH DATA + COUNT
+    //////////////////////////////////////////////////////
+
     const [users, total] = await prisma.$transaction([
+
       prisma.user.findMany({
         where,
         include: {
@@ -87,17 +116,29 @@ export class UserRepository {
           },
         },
         skip,
-        take: limit,
-        orderBy: { createdAt: 'desc' },
+        take: safeLimit,
+        orderBy: {
+          createdAt: 'desc',
+        },
       }),
-      prisma.user.count({ where }),
+
+      prisma.user.count({
+        where,
+      }),
+
     ]);
+
+    //////////////////////////////////////////////////////
+    // RESPONSE
+    //////////////////////////////////////////////////////
 
     return {
       users,
       total,
-      totalPages: Math.max(1, Math.ceil(total / limit)),
-      currentPage: page,
+      totalPages: Math.max(1, Math.ceil(total / safeLimit)),
+      currentPage: safePage,
     };
+
   }
+
 }

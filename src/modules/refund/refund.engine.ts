@@ -5,18 +5,20 @@ import {
   TransactionType,
   ApplicationStatus,
   UserRole,
+  AuditAction,
 } from '@prisma/client';
 import logger from '../../core/logger';
 import { AnomalyEngine } from '../security/anomaly.engine';
 
 /**
- * KAAGAZSEVA - Refund Engine (Full + Partial + Escrow Safe)
- * Hardened with Anomaly Detection for Financial Integrity
+ * KAAGAZSEVA - Refund Engine
+ * Handles financial refund execution
  */
+
 export class RefundEngine {
 
   //////////////////////////////////////////////////////
-  // INTERNAL SYSTEM CONTROL HELPER
+  // SYSTEM CONTROL HELPER
   //////////////////////////////////////////////////////
 
   private static async getSystemControl() {
@@ -28,14 +30,10 @@ export class RefundEngine {
   }
 
   //////////////////////////////////////////////////////
-  // 1️⃣ CUSTOMER REQUEST REFUND
+  // CUSTOMER REQUEST REFUND
   //////////////////////////////////////////////////////
 
   static async requestRefund(applicationId: string, userId: string) {
-
-    //////////////////////////////////////////////////////
-    // GLOBAL REFUND FREEZE CHECK
-    //////////////////////////////////////////////////////
 
     const systemControl = await this.getSystemControl();
 
@@ -71,13 +69,23 @@ export class RefundEngine {
       data: { refundRequested: true },
     });
 
-    logger.info(`Refund requested for ${applicationId}`);
+    await prisma.auditLog.create({
+      data: {
+        userId,
+        action: AuditAction.CREATE,
+        resourceType: 'REFUND_REQUEST',
+        resourceId: applicationId,
+        success: true,
+      },
+    });
+
+    logger.warn(`Refund requested → ${applicationId}`);
 
     return { message: 'Refund request submitted for review' };
   }
 
   //////////////////////////////////////////////////////
-  // 2️⃣ STATE_ADMIN EXECUTE REFUND (FULL OR PARTIAL)
+  // EXECUTE REFUND
   //////////////////////////////////////////////////////
 
   static async executeRefund(
@@ -85,10 +93,6 @@ export class RefundEngine {
     adminRole: UserRole,
     refundAmount?: number
   ) {
-
-    //////////////////////////////////////////////////////
-    // GLOBAL REFUND FREEZE CHECK
-    //////////////////////////////////////////////////////
 
     const systemControl = await this.getSystemControl();
 
@@ -99,7 +103,7 @@ export class RefundEngine {
       );
     }
 
-    if (adminRole !== UserRole.STATE_ADMIN) {
+    if (adminRole !== UserRole.STATE_ADMIN && adminRole !== UserRole.FOUNDER) {
       throw new AppError('Only admin can process refunds', 403);
     }
 
@@ -138,14 +142,11 @@ export class RefundEngine {
       }
 
       if (finalRefundAmount > totalEscrow) {
-        throw new AppError(
-          'Refund exceeds escrow amount',
-          400
-        );
+        throw new AppError('Refund exceeds escrow amount', 400);
       }
 
       //////////////////////////////////////////////////////
-      // 1️⃣ CREATE REFUND TRANSACTION
+      // CREATE REFUND TRANSACTION
       //////////////////////////////////////////////////////
 
       await tx.transaction.create({
@@ -159,13 +160,13 @@ export class RefundEngine {
       });
 
       //////////////////////////////////////////////////////
-      // SECURITY CHECK: REFUND ANOMALY DETECTION
+      // FRAUD DETECTION
       //////////////////////////////////////////////////////
 
       await AnomalyEngine.analyzeRefund(application.customerId);
 
       //////////////////////////////////////////////////////
-      // 2️⃣ HANDLE PARTIAL VS FULL
+      // HANDLE FULL VS PARTIAL
       //////////////////////////////////////////////////////
 
       if (finalRefundAmount === totalEscrow) {
@@ -208,7 +209,7 @@ export class RefundEngine {
       }
 
       //////////////////////////////////////////////////////
-      // 3️⃣ ADJUST AGENT METRICS
+      // AGENT METRICS FIX
       //////////////////////////////////////////////////////
 
       if (
@@ -223,8 +224,22 @@ export class RefundEngine {
         });
       }
 
-      logger.info(
-        `Refund processed for ${applicationId} | Amount=${finalRefundAmount}`
+      //////////////////////////////////////////////////////
+      // AUDIT LOG
+      //////////////////////////////////////////////////////
+
+      await tx.auditLog.create({
+        data: {
+          userId: application.customerId,
+          action: AuditAction.UPDATE,
+          resourceType: 'REFUND_EXECUTED',
+          resourceId: applicationId,
+          success: true,
+        },
+      });
+
+      logger.warn(
+        `Refund processed → ${applicationId} | Amount=${finalRefundAmount}`
       );
 
       return {
@@ -235,7 +250,7 @@ export class RefundEngine {
   }
 
   //////////////////////////////////////////////////////
-  // 3️⃣ STATE_ADMIN REJECT REFUND
+  // REJECT REFUND
   //////////////////////////////////////////////////////
 
   static async rejectRefund(
@@ -243,7 +258,7 @@ export class RefundEngine {
     adminRole: UserRole
   ) {
 
-    if (adminRole !== UserRole.STATE_ADMIN) {
+    if (adminRole !== UserRole.STATE_ADMIN && adminRole !== UserRole.FOUNDER) {
       throw new AppError('Only admin can reject refund', 403);
     }
 
@@ -264,7 +279,7 @@ export class RefundEngine {
       data: { refundRequested: false },
     });
 
-    logger.info(`Refund rejected for ${applicationId}`);
+    logger.info(`Refund rejected → ${applicationId}`);
 
     return { message: 'Refund request rejected' };
   }

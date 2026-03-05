@@ -4,17 +4,19 @@ import { asyncHandler } from '../../core/asyncHandler';
 import { ApiResponse } from '../../core/ApiResponse';
 import { AppError } from '../../core/AppError';
 import { env } from '../../config/env';
+import { RequestWithUser } from '../../core/types';
 
 /**
  * KAAGAZSEVA - Auth Controller
- * HTTP layer for authentication.
  */
+
 export class AuthController {
 
   /**
-   * POST /api/v1/auth/request-otp
+   * POST /api/v1/auth/send-otp
    */
-  static requestOtp = asyncHandler(async (req: Request, res: Response) => {
+  static sendOtp = asyncHandler(async (req: RequestWithUser, res: Response) => {
+
     const { phoneNumber } = req.body;
 
     const result = await AuthService.requestOtp(phoneNumber);
@@ -22,24 +24,42 @@ export class AuthController {
     return ApiResponse.success(
       res,
       result.message,
-      { phoneNumber }
+      { phoneNumber, requestId: req.requestId }
+    );
+  });
+
+  /**
+   * Alias for backward compatibility
+   * POST /api/v1/auth/request-otp
+   */
+  static requestOtp = asyncHandler(async (req: RequestWithUser, res: Response) => {
+
+    const { phoneNumber } = req.body;
+
+    const result = await AuthService.requestOtp(phoneNumber);
+
+    return ApiResponse.success(
+      res,
+      result.message,
+      { phoneNumber, requestId: req.requestId }
     );
   });
 
   /**
    * POST /api/v1/auth/verify-otp
    */
-  static verifyOtp = asyncHandler(async (req: Request, res: Response) => {
+  static verifyOtp = asyncHandler(async (req: RequestWithUser, res: Response) => {
+
     const { phoneNumber, otp } = req.body;
 
-    const { user, tokens } = await AuthService.verifyOtp(phoneNumber, otp);
+    const { user, tokens } =
+      await AuthService.verifyOtp(phoneNumber, otp);
 
-    // 🔐 Secure Refresh Token Cookie
     res.cookie('refreshToken', tokens.refreshToken, {
       httpOnly: true,
       secure: env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      sameSite: 'strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
     return ApiResponse.success(
@@ -48,6 +68,7 @@ export class AuthController {
       {
         user,
         accessToken: tokens.accessToken,
+        requestId: req.requestId,
       }
     );
   });
@@ -55,7 +76,7 @@ export class AuthController {
   /**
    * POST /api/v1/auth/refresh
    */
-  static refreshToken = asyncHandler(async (req: Request, res: Response) => {
+  static refreshToken = asyncHandler(async (req: RequestWithUser, res: Response) => {
 
     const token =
       req.cookies?.refreshToken ||
@@ -71,24 +92,28 @@ export class AuthController {
     return ApiResponse.success(
       res,
       'Token refreshed',
-      { accessToken }
+      {
+        accessToken,
+        requestId: req.requestId,
+      }
     );
   });
 
   /**
    * POST /api/v1/auth/logout
    */
-  static logout = asyncHandler(async (_req: Request, res: Response) => {
+  static logout = asyncHandler(async (req: RequestWithUser, res: Response) => {
 
     res.clearCookie('refreshToken', {
       httpOnly: true,
       secure: env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      sameSite: 'strict',
     });
 
     return ApiResponse.success(
       res,
-      'Logged out successfully'
+      'Logged out successfully',
+      { requestId: req.requestId }
     );
   });
 }

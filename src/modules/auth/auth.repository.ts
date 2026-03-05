@@ -1,11 +1,10 @@
 import { prisma } from '../../config/database';
-import { UserRole, User } from '@prisma/client';
+import { UserRole } from '@prisma/client';
 
 /**
  * KAAGAZSEVA - Auth Repository
- * Responsible for direct database operations for Users and Wallets.
- * Pure database layer. No business logic here.
  */
+
 export class AuthRepository {
 
   /**
@@ -20,20 +19,21 @@ export class AuthRepository {
 
   /**
    * Create a new user with wallet atomically
-   * Guarantees system integrity: No user without wallet.
    */
   static async createWithWallet(
     phoneNumber: string,
     role: UserRole = UserRole.CUSTOMER
   ) {
+
     return prisma.$transaction(async (tx) => {
+
       const user = await tx.user.create({
         data: {
           phoneNumber,
           role,
           wallet: {
             create: {
-              balance: 0,
+              balance: '0', // safer for Decimal
             },
           },
         },
@@ -45,7 +45,7 @@ export class AuthRepository {
   }
 
   /**
-   * Update basic profile information
+   * Update profile
    */
   static async updateProfile(
     userId: string,
@@ -61,7 +61,6 @@ export class AuthRepository {
 
   /**
    * Find user by ID
-   * Used internally for auth verification & admin checks
    */
   static async findById(id: string) {
     return prisma.user.findUnique({
@@ -71,7 +70,7 @@ export class AuthRepository {
   }
 
   /**
-   * Soft disable user (future-proofing for admin suspension)
+   * Soft disable user
    */
   static async deactivateUser(userId: string) {
     return prisma.user.update({

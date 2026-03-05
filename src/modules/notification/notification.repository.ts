@@ -17,7 +17,6 @@ export class NotificationRepository {
         type: data.type,
         title: data.title,
         message: data.message,
-        metadata: data.metadata || {},
         isRead: false,
       },
     });
@@ -40,6 +39,7 @@ export class NotificationRepository {
     skip: number,
     take: number
   ) {
+
     const [notifications, total] = await prisma.$transaction([
       prisma.notification.findMany({
         where: { userId },
@@ -82,4 +82,5 @@ export class NotificationRepository {
       },
     });
   }
+
 }

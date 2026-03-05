@@ -4,10 +4,12 @@ import { asyncHandler } from '../../core/asyncHandler';
 import { ApiResponse } from '../../core/ApiResponse';
 import { RequestWithUser } from '../../core/types';
 import { AppError } from '../../core/AppError';
+import logger from '../../core/logger';
 
 /**
  * KAAGAZSEVA - Refund Governance Controller
  */
+
 export class RefundController {
 
   //////////////////////////////////////////////////////
@@ -19,22 +21,31 @@ export class RefundController {
     async (req: RequestWithUser, res: Response) => {
 
       const userId = req.user?.userId;
+
       if (!userId) {
         throw new AppError('Unauthorized', 401);
       }
 
       const { applicationId, amount, reason } = req.body;
 
+      if (!applicationId || !reason) {
+        throw new AppError('Application ID and reason are required', 400);
+      }
+
+      logger.warn(
+        `Refund request submitted → user=${userId} app=${applicationId}`
+      );
+
       const result = await RefundRequestService.requestRefund(
         applicationId,
         userId,
-        Number(amount),
+        amount,
         reason
       );
 
       return ApiResponse.success(
         res,
-        'Refund request submitted',
+        'Refund request submitted successfully',
         result
       );
     }
@@ -55,10 +66,15 @@ export class RefundController {
         throw new AppError('Unauthorized', 401);
       }
 
+      const refundId = req.params.id;
       const { decision } = req.body;
 
+      logger.info(
+        `Refund review → refund=${refundId} reviewer=${reviewerId} decision=${decision}`
+      );
+
       const result = await RefundRequestService.reviewRefund(
-        req.params.id,
+        refundId,
         reviewerId,
         reviewerRole,
         decision
@@ -66,7 +82,7 @@ export class RefundController {
 
       return ApiResponse.success(
         res,
-        'Refund review completed',
+        'Refund review completed successfully',
         result
       );
     }
@@ -81,12 +97,19 @@ export class RefundController {
     async (req: RequestWithUser, res: Response) => {
 
       const processorId = req.user?.userId;
+
       if (!processorId) {
         throw new AppError('Unauthorized', 401);
       }
 
+      const refundId = req.params.id;
+
+      logger.warn(
+        `Refund processing started → refund=${refundId} processor=${processorId}`
+      );
+
       const result = await RefundRequestService.processApprovedRefund(
-        req.params.id,
+        refundId,
         processorId
       );
 

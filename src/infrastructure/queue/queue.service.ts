@@ -1,6 +1,12 @@
 import { Queue, JobsOptions } from 'bullmq';
-import {redis} from '../../config/redis';
+import { redis } from '../../config/redis';
 import logger from '../../core/logger';
+
+/**
+ * Queue Names
+ */
+const EMAIL_QUEUE = 'email-queue';
+const NOTIFICATION_QUEUE = 'notification-queue';
 
 /**
  * Email Job Payload
@@ -22,86 +28,139 @@ export interface NotificationJobPayload {
 }
 
 /**
- * Common queue options
+ * Default Queue Job Options
  */
 const defaultJobOptions: JobsOptions = {
   attempts: 3,
+
   backoff: {
     type: 'exponential',
     delay: 5000,
   },
+
   removeOnComplete: {
-    age: 3600, // keep for 1 hour
+    age: 3600, // 1 hour
   },
+
   removeOnFail: {
-    age: 86400, // keep failed logs for 24 hours
+    age: 86400, // 24 hours
   },
 };
 
 /**
  * KAAGAZSEVA - Background Queue Service
- * Handles async tasks (Email, Notifications, etc.)
+ * Handles async tasks such as Email and Notifications.
  */
 export class QueueService {
-  private static emailQueue = new Queue('email-queue', {
-    connection: redis,
-    defaultJobOptions,
-  });
 
-  private static notificationQueue = new Queue('notification-queue', {
-    connection: redis,
-    defaultJobOptions,
-  });
+  //////////////////////////////////////////////////////
+  // QUEUE INSTANCES
+  //////////////////////////////////////////////////////
 
-  /**
-   * Add email job
-   */
+  private static emailQueue = new Queue<EmailJobPayload>(
+    EMAIL_QUEUE,
+    {
+      connection: redis,
+      defaultJobOptions,
+    }
+  );
+
+  private static notificationQueue = new Queue<NotificationJobPayload>(
+    NOTIFICATION_QUEUE,
+    {
+      connection: redis,
+      defaultJobOptions,
+    }
+  );
+
+  //////////////////////////////////////////////////////
+  // ADD EMAIL JOB
+  //////////////////////////////////////////////////////
+
   static async addEmailJob(data: EmailJobPayload): Promise<void> {
+
     if (!data?.to || !data?.subject) {
-      logger.warn('Email job rejected: missing required fields');
+
+      logger.warn({
+        event: 'EMAIL_JOB_REJECTED',
+        reason: 'missing_fields',
+        data,
+      });
+
       return;
     }
 
     try {
+
+      const jobId = `email:${data.to}:${Date.now()}`;
+
       await this.emailQueue.add(
         'send-email',
         data,
-        {
-          jobId: `email:${data.to}:${Date.now()}`, // Prevent duplicates
-        }
+        { jobId }
       );
 
-      logger.info(`Email Job Added → to=${data.to}`);
-    } catch (error) {
-      logger.error(`Email Queue Error → ${error}`);
+      logger.info({
+        event: 'EMAIL_JOB_ADDED',
+        to: data.to,
+        jobId,
+      });
+
+    } catch (error: any) {
+
+      logger.error({
+        event: 'EMAIL_QUEUE_ERROR',
+        error: error.message,
+      });
+
+      throw error;
     }
   }
 
-  /**
-   * Add notification job
-   */
+  //////////////////////////////////////////////////////
+  // ADD NOTIFICATION JOB
+  //////////////////////////////////////////////////////
+
   static async addNotificationJob(
     data: NotificationJobPayload
   ): Promise<void> {
+
     if (!data?.userId || !data?.message) {
-      logger.warn('Notification job rejected: missing required fields');
+
+      logger.warn({
+        event: 'NOTIFICATION_JOB_REJECTED',
+        reason: 'missing_fields',
+        data,
+      });
+
       return;
     }
 
     try {
+
+      const jobId = `notification:${data.userId}:${Date.now()}`;
+
       await this.notificationQueue.add(
         'send-notification',
         data,
-        {
-          jobId: `notification:${data.userId}:${Date.now()}`,
-        }
+        { jobId }
       );
 
-      logger.info(
-        `Notification Job Added → user=${data.userId} type=${data.type}`
-      );
-    } catch (error) {
-      logger.error(`Notification Queue Error → ${error}`);
+      logger.info({
+        event: 'NOTIFICATION_JOB_ADDED',
+        userId: data.userId,
+        type: data.type,
+        jobId,
+      });
+
+    } catch (error: any) {
+
+      logger.error({
+        event: 'NOTIFICATION_QUEUE_ERROR',
+        error: error.message,
+      });
+
+      throw error;
     }
   }
 }

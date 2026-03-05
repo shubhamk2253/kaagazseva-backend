@@ -3,12 +3,10 @@ import { ZodSchema, ZodError, AnyZodObject } from 'zod';
 import { RequestWithUser } from '../core/types';
 import { AppError } from '../core/AppError';
 import { env } from '../config/env';
+import logger from '../core/logger';
 
 /**
  * KAAGAZSEVA - Universal Zod Validation Middleware
- * Supports:
- * 1️⃣ Full schema object (recommended)
- * 2️⃣ body/query/params separated schema
  */
 
 type SchemaType =
@@ -20,57 +18,112 @@ type SchemaType =
     };
 
 export const validate = (schema: SchemaType): RequestHandler => {
+
   return (req: RequestWithUser, _res: Response, next: NextFunction) => {
+
     try {
-      // ------------------------------------------
-      // 1️⃣ If full Zod object passed
-      // ------------------------------------------
-      if ('parse' in schema) {
-        const parsed = schema.parse({
+
+      ////////////////////////////////////////////////////
+      // 1️⃣ FULL SCHEMA VALIDATION
+      ////////////////////////////////////////////////////
+
+      if ('safeParse' in schema) {
+
+        const result = schema.safeParse({
           body: req.body,
           query: req.query,
           params: req.params,
         });
+
+        if (!result.success) {
+
+          throw result.error;
+
+        }
+
+        const parsed = result.data;
 
         if (parsed.body) req.body = parsed.body;
         if (parsed.query) req.query = parsed.query;
         if (parsed.params) req.params = parsed.params;
 
         return next();
+
       }
 
-      // ------------------------------------------
-      // 2️⃣ If body/query/params schema passed
-      // ------------------------------------------
+      ////////////////////////////////////////////////////
+      // 2️⃣ PARTIAL VALIDATION
+      ////////////////////////////////////////////////////
+
       if (schema.body) {
-        req.body = schema.body.parse(req.body);
+
+        const result = schema.body.safeParse(req.body);
+
+        if (!result.success) {
+          throw result.error;
+        }
+
+        req.body = result.data;
+
       }
 
       if (schema.query) {
-        req.query = schema.query.parse(req.query);
+
+        const result = schema.query.safeParse(req.query);
+
+        if (!result.success) {
+          throw result.error;
+        }
+
+        req.query = result.data;
+
       }
 
       if (schema.params) {
-        req.params = schema.params.parse(req.params);
+
+        const result = schema.params.safeParse(req.params);
+
+        if (!result.success) {
+          throw result.error;
+        }
+
+        req.params = result.data;
+
       }
 
       return next();
+
     } catch (error) {
+
+      ////////////////////////////////////////////////////
+      // ZOD ERROR HANDLING
+      ////////////////////////////////////////////////////
+
       if (error instanceof ZodError) {
+
         const formattedErrors = error.errors.map((err) => ({
           field: err.path.join('.'),
           message: err.message,
         }));
 
+        logger.warn({
+          event: 'VALIDATION_FAILED',
+          path: req.originalUrl,
+          errors: formattedErrors,
+          requestId: req.requestId,
+        });
+
         if (env.NODE_ENV === 'development') {
+
           return next(
             new AppError(
-              `Validation Failed: ${formattedErrors
+              formattedErrors
                 .map((e) => `${e.field}: ${e.message}`)
-                .join(', ')}`,
+                .join(', '),
               400
             )
           );
+
         }
 
         return next(
@@ -79,9 +132,13 @@ export const validate = (schema: SchemaType): RequestHandler => {
             400
           )
         );
+
       }
 
       return next(error);
+
     }
+
   };
+
 };

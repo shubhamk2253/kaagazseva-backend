@@ -50,6 +50,7 @@ export class RazorpayProvider {
         key_secret: env.RAZORPAY_KEY_SECRET,
       });
 
+      logger.info('Razorpay client initialized');
     }
 
     return this.instance;
@@ -75,30 +76,30 @@ export class RazorpayProvider {
     try {
 
       const order = await this.getInstance().orders.create({
-
-        amount: Math.round(amountInRupees * 100), // INR → paisa
+        amount: Math.round(amountInRupees * 100),
         currency: 'INR',
         receipt,
-
-        //////////////////////////////////////////////////////
-        // IMPORTANT: Attach transaction reference
-        //////////////////////////////////////////////////////
-
         notes: {
           transactionId: receipt,
         },
-
       });
 
-      logger.info(
-        `Payment Order Created → receipt=${receipt} | amount=${amountInRupees}`
-      );
+      logger.info({
+        event: 'RAZORPAY_ORDER_CREATED',
+        receipt,
+        amount: amountInRupees,
+        orderId: order.id,
+      });
 
       return order;
 
     } catch (error) {
 
-      logger.error(`Razorpay Order Creation Error → ${error}`);
+      logger.error({
+        event: 'RAZORPAY_ORDER_CREATION_FAILED',
+        error,
+        receipt,
+      });
 
       throw new AppError(
         'Failed to initialize payment gateway',
@@ -132,6 +133,10 @@ export class RazorpayProvider {
         .update(`${orderId}|${paymentId}`)
         .digest('hex');
 
+      if (generatedSignature.length !== signature.length) {
+        return false;
+      }
+
       return crypto.timingSafeEqual(
         Buffer.from(generatedSignature),
         Buffer.from(signature)
@@ -139,7 +144,10 @@ export class RazorpayProvider {
 
     } catch (error) {
 
-      logger.error(`Signature Verification Error → ${error}`);
+      logger.error({
+        event: 'RAZORPAY_SIGNATURE_VERIFY_FAILED',
+        error,
+      });
 
       throw new AppError(
         'Payment verification failed',
@@ -171,20 +179,29 @@ export class RazorpayProvider {
         .update(rawBody)
         .digest('hex');
 
+      if (expectedSignature.length !== signature.length) {
+        return false;
+      }
+
       const isValid = crypto.timingSafeEqual(
         Buffer.from(expectedSignature),
         Buffer.from(signature)
       );
 
       if (!isValid) {
-        logger.warn('Webhook signature mismatch');
+        logger.warn({
+          event: 'RAZORPAY_WEBHOOK_SIGNATURE_MISMATCH'
+        });
       }
 
       return isValid;
 
     } catch (error) {
 
-      logger.error(`Webhook Signature Verification Error → ${error}`);
+      logger.error({
+        event: 'RAZORPAY_WEBHOOK_VERIFY_FAILED',
+        error,
+      });
 
       throw new AppError(
         'Webhook verification failed',

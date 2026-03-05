@@ -5,6 +5,7 @@ import { UserRole } from '@prisma/client';
    🔐 JWT Payload
    What we encode inside Access & Refresh Tokens
 ===================================================== */
+
 export interface TokenPayload {
   userId: string;
   role: UserRole;
@@ -60,13 +61,16 @@ export interface PaginatedResponse<T> {
 export interface ApiSuccess<T> {
   success: true;
   message?: string;
+  timestamp?: string;
   data: T;
 }
 
 export interface ApiFailure {
   success: false;
   message: string;
-  error?: any;
+  timestamp?: string;
+  errorCode?: string;
+  details?: unknown;
 }
 
 /* =====================================================
@@ -74,14 +78,15 @@ export interface ApiFailure {
 ===================================================== */
 
 export interface UploadedFile {
-  fieldname: string;        // Multer field name
-  originalname: string;     // Original file name
+  fieldname: string;
+  originalname: string;
   encoding: string;
   mimetype: string;
   buffer: Buffer;
   size: number;
 
   // After S3 Upload
-  key?: string;             // S3 object key
-  location?: string;        // S3 URL
+  key?: string;          // S3 object key
+  location?: string;     // Public S3 URL
+  etag?: string;         // S3 ETag
 }

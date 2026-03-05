@@ -6,6 +6,7 @@ import { requireAuth } from '../../middleware/auth.middleware';
 import { authorizeRoles } from '../../middleware/role.middleware';
 import { apiLimiter } from '../../middleware/rateLimit.middleware';
 import { upload } from '../../middleware/upload.middleware';
+import { UserRole } from '@prisma/client';
 import { z } from 'zod';
 
 const router = Router();
@@ -39,7 +40,7 @@ router.post(
 );
 
 ////////////////////////////////////////////////////////
-// 🔹 STEP 2 — UPLOAD DOCUMENTS TO EXISTING DRAFT
+// 🔹 STEP 2 — UPLOAD DOCUMENTS
 // POST /api/v1/applications/:id/documents
 ////////////////////////////////////////////////////////
 
@@ -69,7 +70,7 @@ router.get(
 
 router.get(
   '/',
-  authorizeRoles('STATE_ADMIN', 'AGENT'),
+  authorizeRoles(UserRole.STATE_ADMIN, UserRole.AGENT),
   validate(applicationSchema.filter),
   ApplicationController.listApplications
 );
@@ -86,14 +87,14 @@ router.get(
 );
 
 ////////////////////////////////////////////////////////
-// 🔹 STATUS UPDATE (STATE_ADMIN / AGENT)
+// 🔹 STATUS UPDATE
 // PATCH /api/v1/applications/:id/status
 ////////////////////////////////////////////////////////
 
 router.patch(
   '/:id/status',
   apiLimiter,
-  authorizeRoles('STATE_ADMIN', 'AGENT'),
+  authorizeRoles(UserRole.STATE_ADMIN, UserRole.AGENT),
   validate(applicationSchema.updateStatus),
   ApplicationController.updateStatus
 );

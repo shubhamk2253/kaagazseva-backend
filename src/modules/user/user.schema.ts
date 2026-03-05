@@ -1,15 +1,17 @@
 import { z } from 'zod';
-import { UserRole } from '../../core/constants';
+import { UserRole } from '@prisma/client';
 
 /**
  * KAAGAZSEVA - User Validation Schemas
  * Production-grade input validation.
  */
+
 export const userSchema = {
-  /**
-   * 1️⃣ Update Profile
-   * Citizen/Agent updating their own information
-   */
+
+  //////////////////////////////////////////////////////
+  // 1️⃣ UPDATE PROFILE
+  //////////////////////////////////////////////////////
+
   updateProfile: z.object({
     body: z.object({
       name: z
@@ -17,16 +19,18 @@ export const userSchema = {
         .trim()
         .min(2, 'Name must be at least 2 characters')
         .max(50, 'Name cannot exceed 50 characters')
-        .regex(/^[a-zA-Z\s]+$/, 'Name can only contain letters and spaces')
+        .regex(/^[A-Za-z\s]+$/, 'Name can only contain letters and spaces')
         .optional(),
     }),
   }),
 
-  /**
-   * 2️⃣ Admin: Search & Filter Users
-   */
+  //////////////////////////////////////////////////////
+  // 2️⃣ ADMIN: SEARCH USERS
+  //////////////////////////////////////////////////////
+
   searchUsers: z.object({
     query: z.object({
+
       role: z.nativeEnum(UserRole).optional(),
 
       isActive: z
@@ -43,29 +47,39 @@ export const userSchema = {
 
       page: z
         .string()
-        .default('1')
-        .transform((val) => parseInt(val))
-        .pipe(z.number().min(1)),
+        .regex(/^\d+$/, 'Page must be a number')
+        .transform((val) => Number(val))
+        .refine((val) => val >= 1, {
+          message: 'Page must be at least 1',
+        })
+        .default('1'),
 
       limit: z
         .string()
-        .default('10')
-        .transform((val) => parseInt(val))
-        .pipe(z.number().min(1).max(100)),
+        .regex(/^\d+$/, 'Limit must be a number')
+        .transform((val) => Number(val))
+        .refine((val) => val >= 1 && val <= 50, {
+          message: 'Limit must be between 1 and 50',
+        })
+        .default('10'),
+
     }),
   }),
 
-  /**
-   * 3️⃣ Admin: Activate / Suspend User
-   */
+  //////////////////////////////////////////////////////
+  // 3️⃣ ADMIN: UPDATE USER STATUS
+  //////////////////////////////////////////////////////
+
   updateStatus: z.object({
     params: z.object({
       id: z.string().uuid('Invalid User ID format'),
     }),
+
     body: z.object({
       isActive: z.boolean({
         required_error: 'isActive status is required',
       }),
     }),
   }),
+
 };

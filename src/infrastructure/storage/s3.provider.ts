@@ -3,8 +3,10 @@ import {
   GetObjectCommand,
   DeleteObjectCommand,
 } from '@aws-sdk/client-s3';
+
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { s3Client, BUCKET_NAME } from '../../config/s3';
+
 import { AppError } from '../../core/AppError';
 import logger from '../../core/logger';
 import { v4 as uuidv4 } from 'uuid';
@@ -12,18 +14,24 @@ import { SYSTEM_LIMITS } from '../../core/constants';
 
 /**
  * KAAGAZSEVA - Secure S3 Storage Provider
- * GovTech-grade secure storage layer
  */
-export class S3Provider {
-  private static readonly ALLOWED_TYPES = [
-    'application/pdf',
-    'image/jpeg',
-    'image/png',
-  ];
 
-  /* =====================================================
-     Upload File
-  ===================================================== */
+export class S3Provider {
+
+  //////////////////////////////////////////////////////
+  // ALLOWED FILE TYPES
+  //////////////////////////////////////////////////////
+
+  private static readonly ALLOWED_TYPES: Record<string, string> = {
+    'application/pdf': 'pdf',
+    'image/jpeg': 'jpg',
+    'image/png': 'png',
+  };
+
+  //////////////////////////////////////////////////////
+  // UPLOAD FILE
+  //////////////////////////////////////////////////////
+
   static async uploadFile(
     file: Express.Multer.File,
     folder: string,
@@ -33,41 +41,64 @@ export class S3Provider {
     const maxSizeBytes =
       SYSTEM_LIMITS.MAX_FILE_SIZE_MB * 1024 * 1024;
 
-    // 1️⃣ Validate file size
+    //////////////////////////////////////////////////////
+    // SIZE VALIDATION
+    //////////////////////////////////////////////////////
+
     if (file.size > maxSizeBytes) {
+
       throw new AppError(
         `File exceeds ${SYSTEM_LIMITS.MAX_FILE_SIZE_MB}MB limit`,
-        400
+        400,
+        true,
+        'FILE_TOO_LARGE'
       );
     }
 
-    // 2️⃣ Validate file type
-    if (!this.ALLOWED_TYPES.includes(file.mimetype)) {
-      throw new AppError('Unsupported file type', 400);
+    //////////////////////////////////////////////////////
+    // TYPE VALIDATION
+    //////////////////////////////////////////////////////
+
+    const extension = this.ALLOWED_TYPES[file.mimetype];
+
+    if (!extension) {
+
+      throw new AppError(
+        'Unsupported file type',
+        400,
+        true,
+        'FILE_TYPE_NOT_ALLOWED'
+      );
     }
 
-    // 3️⃣ Safe extension extraction
-    const extension = file.mimetype === 'application/pdf'
-      ? 'pdf'
-      : file.mimetype === 'image/jpeg'
-      ? 'jpg'
-      : 'png';
+    //////////////////////////////////////////////////////
+    // STORAGE KEY
+    //////////////////////////////////////////////////////
 
-    // 4️⃣ Structured key for scalability
-    const key = `${folder}/${userId || 'system'}/${uuidv4()}.${extension}`;
+    const key =
+      `${folder}/${userId || 'system'}/${uuidv4()}.${extension}`;
 
     try {
+
       const command = new PutObjectCommand({
+
         Bucket: BUCKET_NAME,
+
         Key: key,
+
         Body: file.buffer,
+
         ContentType: file.mimetype,
 
-        // Always private
-        ACL: 'private',
+        ContentLength: file.size,
 
-        // Important for browser downloads
         ContentDisposition: 'inline',
+
+        //////////////////////////////////////////////////////
+        // ENCRYPTION (IMPORTANT)
+        //////////////////////////////////////////////////////
+
+        ServerSideEncryption: 'AES256',
 
         Metadata: {
           uploadedBy: userId || 'system',
@@ -76,48 +107,77 @@ export class S3Provider {
 
       await s3Client.send(command);
 
-      logger.info(`S3 Upload Success → ${key}`);
+      logger.info({
+        event: 'S3_UPLOAD_SUCCESS',
+        key,
+      });
 
       return { key };
+
     } catch (error: any) {
-      logger.error(`S3 Upload Error → ${error.message}`);
+
+      logger.error({
+        event: 'S3_UPLOAD_FAILED',
+        key,
+        error: error.message,
+      });
+
       throw new AppError(
         'Failed to upload document to storage',
-        500
+        500,
+        true,
+        'S3_UPLOAD_FAILED'
       );
     }
   }
 
-  /* =====================================================
-     Generate Secure URL
-  ===================================================== */
+  //////////////////////////////////////////////////////
+  // GENERATE SECURE URL
+  //////////////////////////////////////////////////////
+
   static async getPresignedUrl(
     key: string,
-    expires: number = 600 // 10 minutes default
+    expires: number = 600
   ): Promise<string> {
+
     try {
+
       const command = new GetObjectCommand({
         Bucket: BUCKET_NAME,
         Key: key,
       });
 
-      return await getSignedUrl(s3Client, command, {
-        expiresIn: expires,
-      });
+      return await getSignedUrl(
+        s3Client,
+        command,
+        { expiresIn: expires }
+      );
+
     } catch (error: any) {
-      logger.error(`S3 Presign Error → ${error.message}`);
+
+      logger.error({
+        event: 'S3_PRESIGN_FAILED',
+        key,
+        error: error.message,
+      });
+
       throw new AppError(
         'Could not generate secure access link',
-        500
+        500,
+        true,
+        'S3_PRESIGN_FAILED'
       );
     }
   }
 
-  /* =====================================================
-     Delete File
-  ===================================================== */
+  //////////////////////////////////////////////////////
+  // DELETE FILE
+  //////////////////////////////////////////////////////
+
   static async deleteFile(key: string): Promise<void> {
+
     try {
+
       const command = new DeleteObjectCommand({
         Bucket: BUCKET_NAME,
         Key: key,
@@ -125,12 +185,24 @@ export class S3Provider {
 
       await s3Client.send(command);
 
-      logger.info(`S3 Delete Success → ${key}`);
+      logger.info({
+        event: 'S3_DELETE_SUCCESS',
+        key,
+      });
+
     } catch (error: any) {
-      logger.error(`S3 Delete Error → ${error.message}`);
+
+      logger.error({
+        event: 'S3_DELETE_FAILED',
+        key,
+        error: error.message,
+      });
+
       throw new AppError(
         'Failed to delete document from storage',
-        500
+        500,
+        true,
+        'S3_DELETE_FAILED'
       );
     }
   }

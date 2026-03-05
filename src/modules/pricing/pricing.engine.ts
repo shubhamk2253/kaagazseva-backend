@@ -1,24 +1,12 @@
 /**
  * KAAGAZSEVA - Pricing Engine
  * Founder-Level Pricing Intelligence Layer
- *
- * Handles:
- * - Slab multiplier logic
- * - ₹99 minimum
- * - ₹800 hard cap
- * - 25/75 commission rule
- * - ₹30 minimum platform protection
- * - Delivery integration (25 KM cap via DistanceUtil)
- *
- * IMPORTANT:
- * - Draft stage does NOT require agent coordinates.
- * - Delivery is fully validated during assignment stage.
  */
 
 import { DistanceUtil } from '../delivery/distance.util';
 
 export interface PricingInput {
-  govtFee: number;           // in rupees
+  govtFee: number;
   mode: 'DIGITAL' | 'DOORSTEP';
   customerLat?: number;
   customerLng?: number;
@@ -40,6 +28,7 @@ export class PricingEngine {
 
   private static readonly MIN_SERVICE_FEE = 99;
   private static readonly MAX_SERVICE_FEE = 800;
+
   private static readonly PLATFORM_PERCENT = 0.25;
   private static readonly PLATFORM_MIN = 30;
 
@@ -51,24 +40,24 @@ export class PricingEngine {
 
     const { govtFee, mode } = input;
 
-    if (!govtFee || govtFee <= 0) {
+    if (govtFee === undefined || govtFee <= 0) {
       throw new Error('Invalid government fee');
     }
 
     /////////////////////////////////////////////////////
-    // 1️⃣ SERVICE FEE (Slab + Min + Cap)
+    // 1️⃣ SERVICE FEE
     /////////////////////////////////////////////////////
 
     const serviceFee = this.calculateServiceFee(govtFee);
 
     /////////////////////////////////////////////////////
-    // 2️⃣ COMMISSION SPLIT (25% / 75% with ₹30 min)
+    // 2️⃣ COMMISSION SPLIT
     /////////////////////////////////////////////////////
 
-    const rawPlatform = serviceFee * this.PLATFORM_PERCENT;
+    const rawPlatformCommission = serviceFee * this.PLATFORM_PERCENT;
 
     const platformCommission = Math.round(
-      Math.max(rawPlatform, this.PLATFORM_MIN)
+      Math.max(rawPlatformCommission, this.PLATFORM_MIN)
     );
 
     const agentCommission = Math.round(
@@ -76,46 +65,46 @@ export class PricingEngine {
     );
 
     /////////////////////////////////////////////////////
-    // 3️⃣ DELIVERY (Optional in Draft Stage)
+    // 3️⃣ DELIVERY CALCULATION
     /////////////////////////////////////////////////////
 
     let deliveryFee = 0;
     let distanceKm: number | undefined;
 
-    if (mode === 'DOORSTEP') {
+    if (
+      mode === 'DOORSTEP' &&
+      input.customerLat !== undefined &&
+      input.customerLng !== undefined &&
+      input.agentLat !== undefined &&
+      input.agentLng !== undefined
+    ) {
 
-      // If agent coordinates are not provided (draft stage),
-      // we only estimate later during assignment.
-      if (
-        input.customerLat !== undefined &&
-        input.customerLng !== undefined &&
-        input.agentLat !== undefined &&
-        input.agentLng !== undefined
-      ) {
+      const result = DistanceUtil.evaluateDoorstep(
+        input.customerLat,
+        input.customerLng,
+        input.agentLat,
+        input.agentLng
+      );
 
-        const result = DistanceUtil.evaluateDoorstep(
-          input.customerLat,
-          input.customerLng,
-          input.agentLat,
-          input.agentLng
-        );
-
-        if (!result.isWithinServiceRadius) {
-          throw new Error('Doorstep service not available beyond 25 KM');
-        }
-
-        distanceKm = result.distanceKm;
-        deliveryFee = result.deliveryFee;
+      if (!result.isWithinServiceRadius) {
+        throw new Error('Doorstep service not available beyond 25 KM');
       }
+
+      distanceKm = result.distanceKm;
+      deliveryFee = result.deliveryFee;
     }
 
     /////////////////////////////////////////////////////
-    // 4️⃣ FINAL TOTAL
+    // 4️⃣ TOTAL AMOUNT
     /////////////////////////////////////////////////////
 
     const totalAmount = Math.round(
       govtFee + serviceFee + deliveryFee
     );
+
+    /////////////////////////////////////////////////////
+    // RETURN PRICING OBJECT
+    /////////////////////////////////////////////////////
 
     return {
       govtFee,
@@ -129,7 +118,7 @@ export class PricingEngine {
   }
 
   ///////////////////////////////////////////////////////
-  // SERVICE FEE LOGIC (Slab + Cap)
+  // SERVICE FEE LOGIC
   ///////////////////////////////////////////////////////
 
   private static calculateServiceFee(govtFee: number): number {
@@ -158,4 +147,5 @@ export class PricingEngine {
 
     return Math.round(serviceFee);
   }
+
 }

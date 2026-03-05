@@ -18,7 +18,7 @@ type AssignmentResult =
 export class AssignmentEngine {
 
   //////////////////////////////////////////////////////
-  // 🚀 AUTO ASSIGN WITH ESCALATION LADDER
+  // AUTO ASSIGN
   //////////////////////////////////////////////////////
 
   static async autoAssign(
@@ -36,7 +36,7 @@ export class AssignmentEngine {
     );
 
     if (!lock) {
-      logger.warn(`⚠️ Assignment already running → ${applicationId}`);
+      logger.warn(`Assignment already running → ${applicationId}`);
       return;
     }
 
@@ -54,7 +54,15 @@ export class AssignmentEngine {
         return;
       }
 
-      const level = application.escalationLevel ?? 1;
+      //////////////////////////////////////////////////////
+      // REDIS ESCALATION LEVEL
+      //////////////////////////////////////////////////////
+
+      const escalationKey = `assignment_escalation:${applicationId}`;
+
+      let level =
+        Number(await redis.get(escalationKey)) || 1;
+
       let agents: any[] = [];
 
       //////////////////////////////////////////////////////
@@ -62,12 +70,13 @@ export class AssignmentEngine {
       //////////////////////////////////////////////////////
 
       if (level === 1) {
-        logger.info(`📍 Level 1 (District) → ${applicationId}`);
 
         agents = await this.findEligibleAgents({
           state: application.state,
           district: application.district,
+          serviceId: application.serviceId!,
         });
+
       }
 
       //////////////////////////////////////////////////////
@@ -75,11 +84,12 @@ export class AssignmentEngine {
       //////////////////////////////////////////////////////
 
       else if (level === 2) {
-        logger.info(`🌍 Level 2 (State) → ${applicationId}`);
 
         agents = await this.findEligibleAgents({
           state: application.state,
+          serviceId: application.serviceId!,
         });
+
       }
 
       //////////////////////////////////////////////////////
@@ -87,22 +97,23 @@ export class AssignmentEngine {
       //////////////////////////////////////////////////////
 
       else if (level === 3) {
-        logger.info(`📡 Level 3 (Geo) → ${applicationId}`);
 
         if (
           application.mode === ServiceMode.DOORSTEP &&
           application.customerLat &&
           application.customerLng
         ) {
+
           agents = await this.findGeoAgents(
             application.customerLat,
-            application.customerLng
+            application.customerLng,
+            application.serviceId!
           );
         }
       }
 
       //////////////////////////////////////////////////////
-      // LEVEL 4+ → STATE_ADMIN REVIEW
+      // LEVEL 4 → ADMIN REVIEW
       //////////////////////////////////////////////////////
 
       else {
@@ -110,73 +121,79 @@ export class AssignmentEngine {
         await prisma.application.update({
           where: { id: applicationId },
           data: {
-            manualReview: true,
+            status: ApplicationStatus.UNDER_REVIEW,
           },
         });
 
         logger.warn(
-          `🚨 Escalated to admin review → ${applicationId}`
+          `Escalated to admin review → ${applicationId}`
         );
 
         return { message: 'Escalated to admin review' };
       }
 
       //////////////////////////////////////////////////////
-      // NO AGENTS FOUND → ESCALATE
+      // NO AGENTS → ESCALATE
       //////////////////////////////////////////////////////
 
       if (!agents.length) {
 
-        await prisma.application.update({
-          where: { id: applicationId },
-          data: {
-            escalationLevel: {
-              increment: 1,
-            },
-          },
-        });
-
-        logger.warn(
-          `⬆ Escalation increased → ${applicationId}`
+        await redis.set(
+          escalationKey,
+          level + 1,
+          'EX',
+          3600
         );
 
-        // Retry with next level (safe recursion)
         return await this.autoAssign(applicationId);
       }
 
       //////////////////////////////////////////////////////
-      // AGENTS FOUND → ASSIGN
+      // ASSIGN
       //////////////////////////////////////////////////////
 
       return await this.assign(applicationId, agents);
 
     } finally {
+
       await redis.del(lockKey);
     }
   }
 
   //////////////////////////////////////////////////////
-  // 🔍 FIND ELIGIBLE AGENTS (SUSPENSION SAFE)
+  // FIND AGENTS
   //////////////////////////////////////////////////////
 
   private static async findEligibleAgents(filter: {
     state?: string;
     district?: string;
+    serviceId: string;
   }) {
 
     return prisma.user.findMany({
       where: {
+
         role: UserRole.AGENT,
         isActive: true,
-        suspensionStatus: SuspensionStatus.CONFIRMED, // 🔥 PHASE 5 PROTECTION
+
+        suspensionStatus: SuspensionStatus.NONE,
 
         ...(filter.state && { state: filter.state }),
         ...(filter.district && { district: filter.district }),
 
+        agentServices: {
+          some: {
+            serviceId: filter.serviceId,
+            isActive: true,
+          },
+        },
+
         agentMetrics: {
           activeCases: { lt: 25 },
         },
+
       },
+
       include: {
         agentMetrics: true,
       },
@@ -184,27 +201,38 @@ export class AssignmentEngine {
   }
 
   //////////////////////////////////////////////////////
-  // 📍 GEO AGENTS (25KM + SUSPENSION SAFE)
+  // GEO AGENTS
   //////////////////////////////////////////////////////
 
   private static async findGeoAgents(
     lat: number,
-    lng: number
+    lng: number,
+    serviceId: string
   ) {
 
     const agents = await prisma.user.findMany({
       where: {
+
         role: UserRole.AGENT,
         isActive: true,
-        suspensionStatus: SuspensionStatus.CONFIRMED, // 🔥 PHASE 5 PROTECTION
+        suspensionStatus: SuspensionStatus.NONE,
 
         latitude: { not: null },
         longitude: { not: null },
 
+        agentServices: {
+          some: {
+            serviceId,
+            isActive: true,
+          },
+        },
+
         agentMetrics: {
           activeCases: { lt: 25 },
         },
+
       },
+
       include: {
         agentMetrics: true,
       },
@@ -224,7 +252,7 @@ export class AssignmentEngine {
   }
 
   //////////////////////////////////////////////////////
-  // 🏆 FINAL ASSIGN
+  // FINAL ASSIGN
   //////////////////////////////////////////////////////
 
   private static async assign(
@@ -249,7 +277,6 @@ export class AssignmentEngine {
           status: ApplicationStatus.ASSIGNED,
           assignedAt: new Date(),
           assignmentDeadline: deadline,
-          manualReview: false,
         },
       });
 
@@ -263,7 +290,7 @@ export class AssignmentEngine {
     });
 
     logger.info(
-      `✅ Application ${applicationId} assigned → ${bestAgent.id}`
+      `Application ${applicationId} assigned → ${bestAgent.id}`
     );
 
     return { agentId: bestAgent.id, deadline };

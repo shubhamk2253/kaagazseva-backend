@@ -19,12 +19,11 @@ export interface WalletDetail {
 ================================= */
 export interface TransactionDetail {
   id: string;
-  walletId: string;
+  walletId?: string | null;
   amount: number;
-  type: TransactionType;          // CREDIT | DEBIT
-  status: TransactionStatus;      // PENDING | SUCCESS | FAILED
-  referenceId?: string | null;    // Payment Gateway ID / Application ID
-  description: string;
+  type: TransactionType;        // CREDIT | DEBIT
+  status: TransactionStatus;    // PENDING | SUCCESS | FAILED
+  referenceId?: string | null;  // Payment Gateway ID / Application ID
   createdAt: Date;
 }
 

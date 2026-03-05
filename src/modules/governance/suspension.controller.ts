@@ -1,111 +1,129 @@
-import { Response, NextFunction } from 'express';
+import { Response } from 'express';
 import { SuspensionService } from './suspension.service';
 import { EscalationService } from './escalation.service';
+import { asyncHandler } from '../../core/asyncHandler';
+import { ApiResponse } from '../../core/ApiResponse';
 import { RequestWithUser } from '../../core/types';
+import { AppError } from '../../core/AppError';
 
+/**
+ * KAAGAZSEVA - Suspension Governance Controller
+ */
 export class SuspensionController {
 
   //////////////////////////////////////////////////////
   // 1️⃣ INITIATE
   //////////////////////////////////////////////////////
 
-  static async initiate(
-    req: RequestWithUser,
-    res: Response,
-    next: NextFunction
-  ) {
-    try {
+  static initiate = asyncHandler(
+    async (req: RequestWithUser, res: Response) => {
+
+      if (!req.user) {
+        throw new AppError('Unauthorized', 401);
+      }
+
       const { targetUserId, reason, evidence } = req.body;
 
       const result = await SuspensionService.initiate(
         targetUserId,
         reason,
-        req.user!.userId,
-        req.user!.role,
+        req.user.userId,
+        req.user.role,
         evidence
       );
 
-      res.status(201).json(result);
+      return ApiResponse.created(
+        res,
+        'Suspension case initiated',
+        result
+      );
 
-    } catch (error) {
-      next(error);
     }
-  }
+  );
 
   //////////////////////////////////////////////////////
   // 2️⃣ REVIEW
   //////////////////////////////////////////////////////
 
-  static async review(
-    req: RequestWithUser,
-    res: Response,
-    next: NextFunction
-  ) {
-    try {
+  static review = asyncHandler(
+    async (req: RequestWithUser, res: Response) => {
+
+      if (!req.user) {
+        throw new AppError('Unauthorized', 401);
+      }
+
       const { caseId } = req.params;
       const { decision } = req.body;
 
       const result = await SuspensionService.review(
         caseId,
-        req.user!.userId,
+        req.user.userId,
         decision
       );
 
-      res.status(200).json(result);
+      return ApiResponse.success(
+        res,
+        'Suspension case reviewed',
+        result
+      );
 
-    } catch (error) {
-      next(error);
     }
-  }
+  );
 
   //////////////////////////////////////////////////////
   // 3️⃣ APPEAL
   //////////////////////////////////////////////////////
 
-  static async appeal(
-    req: RequestWithUser,
-    res: Response,
-    next: NextFunction
-  ) {
-    try {
+  static appeal = asyncHandler(
+    async (req: RequestWithUser, res: Response) => {
+
+      if (!req.user) {
+        throw new AppError('Unauthorized', 401);
+      }
+
       const { caseId } = req.params;
       const { message } = req.body;
 
       const result = await SuspensionService.appeal(
         caseId,
-        req.user!.userId,
+        req.user.userId,
         message
       );
 
-      res.status(200).json(result);
+      return ApiResponse.success(
+        res,
+        'Appeal submitted successfully',
+        result
+      );
 
-    } catch (error) {
-      next(error);
     }
-  }
+  );
 
   //////////////////////////////////////////////////////
   // 4️⃣ ESCALATE
   //////////////////////////////////////////////////////
 
-  static async escalate(
-    req: RequestWithUser,
-    res: Response,
-    next: NextFunction
-  ) {
-    try {
+  static escalate = asyncHandler(
+    async (req: RequestWithUser, res: Response) => {
+
+      if (!req.user) {
+        throw new AppError('Unauthorized', 401);
+      }
+
       const { caseId } = req.params;
 
       const result = await EscalationService.escalate(
         caseId,
-        req.user!.userId
+        req.user.userId
       );
 
-      res.status(200).json(result);
+      return ApiResponse.success(
+        res,
+        'Case escalated successfully',
+        result
+      );
 
-    } catch (error) {
-      next(error);
     }
-  }
+  );
 
 }

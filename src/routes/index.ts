@@ -12,9 +12,9 @@ import publicRoutes from '../modules/public/public.routes';
 
 import suspensionRoutes from '../modules/governance/suspension.routes';
 import founderVisibilityRoutes from '../modules/governance/founder-visibility.routes';
-import systemControlRoutes from '../modules/governance/system-control.routes'; // ✅ Phase 8
+import systemControlRoutes from '../modules/governance/system-control.routes';
 
-import refundRoutes from '../modules/refund/refund.routes'; // ✅ Phase 5B
+import refundRoutes from '../modules/refund/refund.routes';
 import paymentWebhookRoutes from '../modules/payment/payment.webhook.routes';
 
 import { ApiResponse } from '../core/ApiResponse';
@@ -78,24 +78,24 @@ router.use('/governance', founderVisibilityRoutes);
 router.use('/governance/system', systemControlRoutes);
 
 ///////////////////////////////////////////////////////
-// SUPPORT
+// SUPPORT MODULES
 ///////////////////////////////////////////////////////
 
 router.use('/tickets', ticketRoutes);
 router.use('/notifications', notificationRoutes);
 
 ///////////////////////////////////////////////////////
-// STATE_ADMIN PANEL
+// STATE ADMIN PANEL
 ///////////////////////////////////////////////////////
 
 router.use('/admin', adminRoutes);
 
 ///////////////////////////////////////////////////////
-// SYSTEM HEALTH
+// API HEALTH CHECK
 ///////////////////////////////////////////////////////
 
 router.get('/health', (_req, res) => {
-  return ApiResponse.success(res, 'System healthy', {
+  return ApiResponse.success(res, 'API healthy', {
     status: 'healthy',
     environment: process.env.NODE_ENV,
     uptime: process.uptime(),

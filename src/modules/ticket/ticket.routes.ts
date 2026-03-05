@@ -14,47 +14,49 @@ const router = Router();
 //////////////////////////////////////////////////////
 // GLOBAL AUTH PROTECTION
 //////////////////////////////////////////////////////
+
 router.use(requireAuth);
 
 //////////////////////////////////////////////////////
 // CREATE TICKET
 // POST /api/v1/tickets
 //////////////////////////////////////////////////////
+
 router.post(
   '/',
-  apiLimiter, // Prevent spam / ticket bombing
+  apiLimiter,
   validate(ticketSchema.create),
   TicketController.create
 );
 
 //////////////////////////////////////////////////////
 // LIST TICKETS
-// GET /api/v1/tickets
-// - Customers → Only their tickets
-// - Admin/Agent → Filtered system view
 //////////////////////////////////////////////////////
+
 router.get(
   '/',
+  apiLimiter,
   TicketController.list
 );
 
 //////////////////////////////////////////////////////
 // GET SINGLE TICKET THREAD
-// GET /api/v1/tickets/:id
 //////////////////////////////////////////////////////
+
 router.get(
   '/:id',
-  validate(ticketSchema.params), // Clean UUID validation
+  apiLimiter,
+  validate(ticketSchema.params),
   TicketController.getThread
 );
 
 //////////////////////////////////////////////////////
 // ADD MESSAGE TO TICKET
-// POST /api/v1/tickets/:id/messages
 //////////////////////////////////////////////////////
+
 router.post(
   '/:id/messages',
-  apiLimiter, // Prevent reply flooding
+  apiLimiter,
   validate(ticketSchema.addMessage),
   TicketController.reply
 );

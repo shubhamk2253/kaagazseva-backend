@@ -8,6 +8,7 @@ import logger from '../../core/logger';
  * KAAGAZSEVA - Wallet Service
  * Approval-based withdrawal architecture
  */
+
 export class WalletService {
 
   //////////////////////////////////////////////////////
@@ -22,88 +23,89 @@ export class WalletService {
     });
   }
 
-  /* =====================================================
-     Get Wallet Balance
-  ===================================================== */
+  //////////////////////////////////////////////////////
+  // GET WALLET BALANCE
+  //////////////////////////////////////////////////////
+
   static async getBalance(userId: string) {
+
     const wallet = await WalletRepository.findByUserId(userId);
 
-    const LOW_BALANCE_THRESHOLD = 5000;
+    const LOW_BALANCE_THRESHOLD = 50;
+
     const balance = Number(wallet.balance);
 
     return {
       balance,
-      balanceInRupees: balance / 100,
       isLowBalance: balance < LOW_BALANCE_THRESHOLD,
       lastUpdated: wallet.updatedAt,
     };
   }
 
-  /* =====================================================
-     Top-Up Wallet
-  ===================================================== */
+  //////////////////////////////////////////////////////
+  // TOP-UP WALLET
+  //////////////////////////////////////////////////////
+
   static async topUp(
     userId: string,
-    amountInPaise: number,
+    amount: number,
     paymentMethod: string,
     externalReference?: string
   ) {
-    if (!amountInPaise || amountInPaise <= 0) {
+
+    if (!amount || amount <= 0) {
       throw new AppError('Invalid top-up amount', 400);
     }
 
     const result = await WalletRepository.createCredit(
       userId,
-      amountInPaise,
+      amount,
       `Wallet top-up via ${paymentMethod}`,
       externalReference
     );
 
     return {
       walletBalance: Number(result.wallet.balance),
-      walletBalanceInRupees: Number(result.wallet.balance) / 100,
       transactionId: result.transaction.id,
     };
   }
 
-  /* =====================================================
-     Pay For Service
-  ===================================================== */
+  //////////////////////////////////////////////////////
+  // PAY FOR SERVICE (Internal wallet usage)
+  //////////////////////////////////////////////////////
+
   static async payForService(
     userId: string,
-    amountInPaise: number,
+    amount: number,
     serviceType: string,
     applicationId: string
   ) {
-    if (!amountInPaise || amountInPaise <= 0) {
+
+    if (!amount || amount <= 0) {
       throw new AppError('Invalid payment amount', 400);
     }
 
     const result = await WalletRepository.createDebit(
       userId,
-      amountInPaise,
+      amount,
       `Payment for ${serviceType} application`,
       applicationId
     );
 
     return {
       walletBalance: Number(result.wallet.balance),
-      walletBalanceInRupees: Number(result.wallet.balance) / 100,
       transactionId: result.transaction.id,
     };
   }
 
-  /* =====================================================
-     Create Withdrawal Request (Agent)
-  ===================================================== */
+  //////////////////////////////////////////////////////
+  // CREATE WITHDRAWAL REQUEST (AGENT)
+  //////////////////////////////////////////////////////
+
   static async withdraw(
     userId: string,
-    amountInPaise: number
+    amount: number
   ) {
-
-    //////////////////////////////////////////////////////
-    // GLOBAL WITHDRAWAL FREEZE CHECK
-    //////////////////////////////////////////////////////
 
     const systemControl = await this.getSystemControl();
 
@@ -114,7 +116,7 @@ export class WalletService {
       );
     }
 
-    if (!amountInPaise || amountInPaise <= 0) {
+    if (!amount || amount <= 0) {
       throw new AppError('Invalid withdrawal amount', 400);
     }
 
@@ -128,7 +130,7 @@ export class WalletService {
       throw new AppError('Only agents can withdraw earnings', 403);
     }
 
-    if (Number(wallet.balance) < amountInPaise) {
+    if (Number(wallet.balance) < amount) {
       throw new AppError('Insufficient wallet balance', 400);
     }
 
@@ -136,7 +138,7 @@ export class WalletService {
       data: {
         agentId: userId,
         walletId: wallet.id,
-        amount: amountInPaise,
+        amount,
         status: 'PENDING',
       },
     });
@@ -145,23 +147,19 @@ export class WalletService {
 
     return {
       requestId: request.id,
-      amountInPaise,
-      amountInRupees: amountInPaise / 100,
+      amount,
       status: 'PENDING_APPROVAL',
     };
   }
 
-  /* =====================================================
-     STATE_ADMIN - Approve Withdrawal
-  ===================================================== */
+  //////////////////////////////////////////////////////
+  // APPROVE WITHDRAWAL (STATE_ADMIN)
+  //////////////////////////////////////////////////////
+
   static async approveWithdrawal(
     requestId: string,
     adminId: string
   ) {
-
-    //////////////////////////////////////////////////////
-    // GLOBAL WITHDRAWAL FREEZE CHECK
-    //////////////////////////////////////////////////////
 
     const systemControl = await this.getSystemControl();
 
@@ -197,11 +195,10 @@ export class WalletService {
         throw new AppError('Wallet frozen. Cannot approve.', 403);
       }
 
-      if (Number(wallet.balance) < request.amount) {
+      if (Number(wallet.balance) < Number(request.amount)) {
         throw new AppError('Insufficient balance at approval time', 400);
       }
 
-      // Debit wallet
       await tx.wallet.update({
         where: { id: wallet.id },
         data: {
@@ -209,7 +206,6 @@ export class WalletService {
         },
       });
 
-      // Ledger entry
       await tx.transaction.create({
         data: {
           userId: request.agentId,
@@ -220,7 +216,6 @@ export class WalletService {
         },
       });
 
-      // Mark request approved
       await tx.withdrawalRequest.update({
         where: { id: request.id },
         data: {
@@ -230,14 +225,12 @@ export class WalletService {
         },
       });
 
-      // Audit log
       await tx.auditLog.create({
         data: {
           userId: adminId,
           action: 'UPDATE',
           resourceType: 'WITHDRAWAL_APPROVED',
           resourceId: request.id,
-          success: true,
         },
       });
 
@@ -248,9 +241,10 @@ export class WalletService {
     return { status: 'APPROVED' };
   }
 
-  /* =====================================================
-     STATE_ADMIN - Reject Withdrawal
-  ===================================================== */
+  //////////////////////////////////////////////////////
+  // REJECT WITHDRAWAL
+  //////////////////////////////////////////////////////
+
   static async rejectWithdrawal(
     requestId: string,
     reason: string,
@@ -289,7 +283,6 @@ export class WalletService {
         action: 'UPDATE',
         resourceType: 'WITHDRAWAL_REJECTED',
         resourceId: requestId,
-        success: true,
       },
     });
 
@@ -298,15 +291,15 @@ export class WalletService {
     return { status: 'REJECTED' };
   }
 
-  /* =====================================================
-     Transaction History
-  ===================================================== */
+  //////////////////////////////////////////////////////
+  // TRANSACTION HISTORY
+  //////////////////////////////////////////////////////
+
   static async getHistory(
     userId: string,
     page: number = 1,
     limit: number = 10
   ) {
-    const wallet = await WalletRepository.findByUserId(userId);
 
     const skip = (page - 1) * limit;
 
@@ -320,7 +313,6 @@ export class WalletService {
       transactions: history.transactions.map((t) => ({
         ...t,
         amount: Number(t.amount),
-        amountInRupees: Number(t.amount) / 100,
       })),
       total: history.total,
       currentPage: page,

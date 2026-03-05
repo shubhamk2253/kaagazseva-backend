@@ -9,74 +9,77 @@ export class FounderVisibilityService {
 
   static async getOverview() {
 
-    const activeCases = await prisma.suspensionCase.count({
-      where: {
-        status: {
-          in: [
-            SuspensionStatus.UNDER_REVIEW,
-            SuspensionStatus.ESCALATED,
-            SuspensionStatus.AUTO_ESCALATED,
-          ],
+    const [
+      activeCases,
+      confirmedCases,
+      autoEscalations,
+      frozenWalletStats,
+      casesByLevel,
+      systemControl
+    ] = await Promise.all([
+
+      prisma.suspensionCase.count({
+        where: {
+          status: {
+            in: [
+              SuspensionStatus.UNDER_REVIEW,
+              SuspensionStatus.ESCALATED,
+              SuspensionStatus.AUTO_ESCALATED,
+            ],
+          },
         },
-      },
-    });
+      }),
 
-    const confirmedCases = await prisma.suspensionCase.count({
-      where: {
-        status: SuspensionStatus.CONFIRMED,
-      },
-    });
+      prisma.suspensionCase.count({
+        where: {
+          status: SuspensionStatus.CONFIRMED,
+        },
+      }),
 
-    const autoEscalations = await prisma.suspensionCase.count({
-      where: {
-        status: SuspensionStatus.AUTO_ESCALATED,
-      },
-    });
+      prisma.suspensionCase.count({
+        where: {
+          status: SuspensionStatus.AUTO_ESCALATED,
+        },
+      }),
 
-    //////////////////////////////////////////////////////
-    // WALLET FREEZE DATA
-    //////////////////////////////////////////////////////
+      prisma.wallet.aggregate({
+        where: { isFrozen: true },
+        _sum: { balance: true },
+        _count: true,
+      }),
 
-    const frozenWallets = await prisma.wallet.findMany({
-      where: { isFrozen: true },
-      select: { balance: true },
-    });
+      prisma.suspensionCase.groupBy({
+        by: ['level'],
+        _count: true,
+      }),
 
-    const totalFrozenBalance = frozenWallets.reduce(
-      (sum, w) => sum + Number(w.balance),
-      0
-    );
+      prisma.systemControl.upsert({
+        where: { id: 'SYSTEM_CONTROL_SINGLETON' },
+        update: {},
+        create: { id: 'SYSTEM_CONTROL_SINGLETON' },
+      }),
 
-    //////////////////////////////////////////////////////
-    // SUSPENSION CASES BY LEVEL
-    //////////////////////////////////////////////////////
-
-    const casesByLevel = await prisma.suspensionCase.groupBy({
-      by: ['level'],
-      _count: true,
-    });
-
-    //////////////////////////////////////////////////////
-    // SYSTEM CONTROL STATUS (PHASE 8)
-    //////////////////////////////////////////////////////
-
-    const systemControl = await prisma.systemControl.findFirst();
+    ]);
 
     return {
+
       activeCases,
       confirmedCases,
       autoEscalations,
 
-      frozenWalletCount: frozenWallets.length,
-      totalFrozenBalance,
+      frozenWalletCount: frozenWalletStats._count,
+      totalFrozenBalance: Number(frozenWalletStats._sum.balance ?? 0),
 
       casesByLevel,
 
       systemStatus: {
-        paymentsFrozen: systemControl?.paymentsFrozen ?? false,
-        refundsFrozen: systemControl?.refundsFrozen ?? false,
-        withdrawalsFrozen: systemControl?.withdrawalsFrozen ?? false,
+        paymentsFrozen: systemControl.paymentsFrozen,
+        refundsFrozen: systemControl.refundsFrozen,
+        withdrawalsFrozen: systemControl.withdrawalsFrozen,
       },
+
     };
+
   }
+
 }

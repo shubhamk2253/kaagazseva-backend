@@ -1,7 +1,7 @@
 import { UserRepository } from './user.repository';
 import { AppError } from '../../core/AppError';
 import { UserQueryFilters } from './user.types';
-import { UserRole } from '../../core/constants';
+import { UserRole } from '@prisma/client';
 import logger from '../../core/logger';
 
 /**
@@ -10,10 +10,12 @@ import logger from '../../core/logger';
  */
 export class UserService {
 
-  /**
-   * Retrieves a user profile and throws 404 if not found
-   */
+  //////////////////////////////////////////////////////
+  // GET PROFILE
+  //////////////////////////////////////////////////////
+
   static async getProfile(userId: string) {
+
     const user = await UserRepository.findById(userId);
 
     if (!user) {
@@ -21,80 +23,140 @@ export class UserService {
     }
 
     return this.transformUser(user);
+
   }
 
-  /**
-   * Updates a citizen's profile (Self-service)
-   */
-  static async updateProfile(userId: string, data: { name?: string }) {
+  //////////////////////////////////////////////////////
+  // UPDATE PROFILE
+  //////////////////////////////////////////////////////
+
+  static async updateProfile(
+    userId: string,
+    data: { name?: string }
+  ) {
+
     if (!data || Object.keys(data).length === 0) {
-      throw new AppError('No fields provided for update', 400);
+      throw new AppError(
+        'No fields provided for update',
+        400
+      );
     }
 
-    const updatedUser = await UserRepository.update(userId, data);
+    const updatedUser = await UserRepository.update(
+      userId,
+      data
+    );
 
-    logger.info(`Profile updated for User: ${userId}`);
+    logger.info({
+      event: 'USER_PROFILE_UPDATED',
+      userId,
+    });
 
     return this.transformUser(updatedUser);
+
   }
 
-  /**
-   * Admin: List and filter users with pagination
-   */
-  static async getAllUsers(filters: UserQueryFilters) {
-    return await UserRepository.findAll(filters);
+  //////////////////////////////////////////////////////
+  // ADMIN: GET ALL USERS
+  //////////////////////////////////////////////////////
+
+  static async getAllUsers(
+    filters: UserQueryFilters
+  ) {
+
+    return UserRepository.findAll(filters);
+
   }
 
-  /**
-   * Admin: Toggle account status (Ban/Unban)
-   */
+  //////////////////////////////////////////////////////
+  // ADMIN: TOGGLE USER STATUS
+  //////////////////////////////////////////////////////
+
   static async toggleUserStatus(
     adminId: string,
     userId: string,
     isActive: boolean
   ) {
+
     const user = await UserRepository.findById(userId);
 
     if (!user) {
       throw new AppError('User not found', 404);
     }
 
-    // Prevent suspending Admin accounts
-    if (user.role === UserRole.STATE_ADMIN) {
-      throw new AppError('Cannot suspend an Admin account', 403);
+    //////////////////////////////////////////////////////
+    // Prevent admin-level suspension
+    //////////////////////////////////////////////////////
+
+    if (
+      user.role === UserRole.STATE_ADMIN ||
+      user.role === UserRole.FOUNDER
+    ) {
+      throw new AppError(
+        'Cannot suspend an admin-level account',
+        403
+      );
     }
 
-    // Prevent admin suspending themselves
+    //////////////////////////////////////////////////////
+    // Prevent self-modification
+    //////////////////////////////////////////////////////
+
     if (adminId === userId) {
-      throw new AppError('You cannot modify your own account status', 400);
+      throw new AppError(
+        'You cannot modify your own account status',
+        400
+      );
     }
 
-    const updatedUser = await UserRepository.update(userId, { isActive });
+    //////////////////////////////////////////////////////
+    // Prevent redundant update
+    //////////////////////////////////////////////////////
 
-    logger.warn(
-      `Admin ${adminId} changed status of User ${userId} to ${
-        isActive ? 'ACTIVE' : 'SUSPENDED'
-      }`
+    if (user.isActive === isActive) {
+      return {
+        id: user.id,
+        isActive: user.isActive,
+      };
+    }
+
+    const updatedUser = await UserRepository.update(
+      userId,
+      { isActive }
     );
+
+    logger.warn({
+      event: 'USER_STATUS_CHANGED',
+      adminId,
+      targetUserId: userId,
+      newStatus: isActive ? 'ACTIVE' : 'SUSPENDED',
+    });
 
     return {
       id: updatedUser.id,
       isActive: updatedUser.isActive,
     };
+
   }
 
-  /**
-   * Private transformer to standardize user response
-   */
+  //////////////////////////////////////////////////////
+  // RESPONSE TRANSFORMER
+  //////////////////////////////////////////////////////
+
   private static transformUser(user: any) {
+
     return {
       id: user.id,
       phoneNumber: user.phoneNumber,
       name: user.name,
       role: user.role,
       isActive: user.isActive,
-      walletBalance: user.wallet?.balance ?? 0,
+      walletBalance: user.wallet
+        ? Number(user.wallet.balance)
+        : 0,
       createdAt: user.createdAt,
     };
+
   }
+
 }

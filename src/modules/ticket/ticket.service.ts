@@ -3,12 +3,12 @@ import { AppError } from '../../core/AppError';
 import { TicketStatus, UserRole, TicketPriority } from '@prisma/client';
 
 /**
- * KAAGAZSEVA - Ticket Service (Schema Aligned)
+ * KAAGAZSEVA - Ticket Service
  */
 export class TicketService {
 
   //////////////////////////////////////////////////////
-  // CREATE TICKET (Customer)
+  // CREATE TICKET
   //////////////////////////////////////////////////////
 
   static async createTicket(userId: string, data: any) {
@@ -16,7 +16,7 @@ export class TicketService {
   }
 
   //////////////////////////////////////////////////////
-  // ADD RESPONSE (Threaded Conversation)
+  // ADD RESPONSE
   //////////////////////////////////////////////////////
 
   static async addMessage(
@@ -25,6 +25,11 @@ export class TicketService {
     role: UserRole,
     message: string
   ) {
+
+    if (!message || message.trim().length < 2) {
+      throw new AppError('Message cannot be empty', 400);
+    }
+
     const ticket = await TicketRepository.findByIdWithResponses(ticketId);
 
     if (!ticket) {
@@ -32,10 +37,17 @@ export class TicketService {
     }
 
     //////////////////////////////////////////////////////
+    // BLOCK CLOSED TICKETS
+    //////////////////////////////////////////////////////
+
+    if (ticket.status === TicketStatus.CLOSED) {
+      throw new AppError('Ticket already closed', 400);
+    }
+
+    //////////////////////////////////////////////////////
     // SECURITY RULES
     //////////////////////////////////////////////////////
 
-    // Customers can only reply to their own tickets
     if (
       role === UserRole.CUSTOMER &&
       ticket.createdById !== senderId
@@ -47,9 +59,10 @@ export class TicketService {
     // STATUS TRANSITIONS
     //////////////////////////////////////////////////////
 
-    // Staff replies to OPEN → move to IN_PROGRESS
     if (
-      (role === UserRole.STATE_ADMIN || role === UserRole.AGENT) &&
+      (role === UserRole.STATE_ADMIN ||
+        role === UserRole.AGENT ||
+        role === UserRole.FOUNDER) &&
       ticket.status === TicketStatus.OPEN
     ) {
       await TicketRepository.updateTicket(ticketId, {
@@ -58,7 +71,6 @@ export class TicketService {
       });
     }
 
-    // Customer replies to RESOLVED → reopen
     if (
       role === UserRole.CUSTOMER &&
       ticket.status === TicketStatus.RESOLVED
@@ -71,7 +83,7 @@ export class TicketService {
     return TicketRepository.addResponse(
       ticketId,
       senderId,
-      message
+      message.trim()
     );
   }
 
@@ -84,13 +96,13 @@ export class TicketService {
     userId: string,
     role: UserRole
   ) {
+
     const ticket = await TicketRepository.findByIdWithResponses(ticketId);
 
     if (!ticket) {
       throw new AppError('Ticket not found', 404);
     }
 
-    // Customers can only view their own tickets
     if (
       role === UserRole.CUSTOMER &&
       ticket.createdById !== userId
@@ -110,14 +122,28 @@ export class TicketService {
     role: UserRole,
     filters: any
   ) {
+
     const page = Number(filters.page) || 1;
-    const limit = Number(filters.limit) || 10;
+    let limit = Number(filters.limit) || 10;
+
+    limit = Math.min(limit, 50);
 
     const skip = (page - 1) * limit;
 
-    const { page: _p, limit: _l, ...dbFilters } = filters;
+    //////////////////////////////////////////////////////
+    // ALLOWED FILTERS
+    //////////////////////////////////////////////////////
 
-    // Customers only see their own tickets
+    const dbFilters: any = {};
+
+    if (filters.status) dbFilters.status = filters.status;
+    if (filters.priority) dbFilters.priority = filters.priority;
+    if (filters.assignedTo) dbFilters.assignedTo = filters.assignedTo;
+
+    //////////////////////////////////////////////////////
+    // CUSTOMER RESTRICTION
+    //////////////////////////////////////////////////////
+
     if (role === UserRole.CUSTOMER) {
       dbFilters.createdById = userId;
     }
@@ -136,7 +162,7 @@ export class TicketService {
   }
 
   //////////////////////////////////////////////////////
-  // STATE_ADMIN UPDATE
+  // ADMIN UPDATE
   //////////////////////////////////////////////////////
 
   static async updateTicket(

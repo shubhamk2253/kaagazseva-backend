@@ -1,17 +1,18 @@
 import { Router } from 'express';
 import { SuspensionController } from './suspension.controller';
 import { requireAuth, requireRole } from '../../middleware/auth.middleware';
+import { apiLimiter } from '../../middleware/rateLimit.middleware';
 import { UserRole } from '@prisma/client';
 
 const router = Router();
 
 ///////////////////////////////////////////////////////////
 // 1️⃣ INITIATE SUSPENSION
-// District Admin / State Admin / Founder
 ///////////////////////////////////////////////////////////
 
 router.post(
   '/initiate',
+  apiLimiter,
   requireAuth,
   requireRole([
     UserRole.DISTRICT_ADMIN,
@@ -23,12 +24,11 @@ router.post(
 
 ///////////////////////////////////////////////////////////
 // 2️⃣ REVIEW SUSPENSION
-// State Admin (Level 1)
-// Founder (Level 2+)
 ///////////////////////////////////////////////////////////
 
 router.post(
   '/:caseId/review',
+  apiLimiter,
   requireAuth,
   requireRole([
     UserRole.STATE_ADMIN,
@@ -38,11 +38,12 @@ router.post(
 );
 
 ///////////////////////////////////////////////////////////
-// 3️⃣ APPEAL (Agent Only)
+// 3️⃣ APPEAL
 ///////////////////////////////////////////////////////////
 
 router.post(
   '/:caseId/appeal',
+  apiLimiter,
   requireAuth,
   requireRole([
     UserRole.AGENT,
@@ -52,11 +53,11 @@ router.post(
 
 ///////////////////////////////////////////////////////////
 // 4️⃣ ESCALATE
-// State Admin / Founder only
 ///////////////////////////////////////////////////////////
 
 router.post(
   '/:caseId/escalate',
+  apiLimiter,
   requireAuth,
   requireRole([
     UserRole.STATE_ADMIN,

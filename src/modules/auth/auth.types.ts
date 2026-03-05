@@ -1,4 +1,4 @@
-import { UserRole } from '../../core/constants';
+import { UserRole } from '@prisma/client';
 
 /**
  * KAAGAZSEVA - Auth Module Types

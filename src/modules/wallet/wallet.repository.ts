@@ -5,18 +5,21 @@ import { AppError } from '../../core/AppError';
 /**
  * KAAGAZSEVA - Wallet Repository
  * Financially safe ledger engine.
- * All monetary values are stored in PAISE (integer).
+ * All monetary values stored in RUPEES (Decimal).
  */
+
 export class WalletRepository {
 
-  /* =====================================================
-     Get Wallet By User (Include User for Governance)
-  ===================================================== */
+  //////////////////////////////////////////////////////
+  // GET WALLET
+  //////////////////////////////////////////////////////
+
   static async findByUserId(userId: string) {
+
     const wallet = await prisma.wallet.findUnique({
       where: { userId },
       include: {
-        user: true, // 🔥 REQUIRED for withdrawal governance check
+        user: true,
       },
     });
 
@@ -27,24 +30,22 @@ export class WalletRepository {
     return wallet;
   }
 
-  /* =====================================================
-     Atomic Debit (Race-Condition Safe)
-  ===================================================== */
+  //////////////////////////////////////////////////////
+  // ATOMIC DEBIT
+  //////////////////////////////////////////////////////
+
   static async createDebit(
     userId: string,
-    amountInPaise: number,
+    amount: number,
     description: string,
     referenceId: string
   ) {
-    if (amountInPaise <= 0) {
+
+    if (amount <= 0) {
       throw new AppError('Invalid debit amount', 400);
     }
 
     return prisma.$transaction(async (tx) => {
-
-      //////////////////////////////////////////////////////
-      // 1️⃣ Idempotency Check
-      //////////////////////////////////////////////////////
 
       const existing = await tx.transaction.findFirst({
         where: { referenceId },
@@ -54,27 +55,19 @@ export class WalletRepository {
         throw new AppError('Duplicate transaction detected', 409);
       }
 
-      //////////////////////////////////////////////////////
-      // 2️⃣ Atomic Balance Decrement
-      //////////////////////////////////////////////////////
-
       const result = await tx.wallet.updateMany({
         where: {
           userId,
-          balance: { gte: amountInPaise },
+          balance: { gte: amount },
         },
         data: {
-          balance: { decrement: amountInPaise },
+          balance: { decrement: amount },
         },
       });
 
       if (result.count === 0) {
         throw new AppError('Insufficient wallet balance', 400);
       }
-
-      //////////////////////////////////////////////////////
-      // 3️⃣ Fetch Updated Wallet
-      //////////////////////////////////////////////////////
 
       const wallet = await tx.wallet.findUnique({
         where: { userId },
@@ -85,14 +78,10 @@ export class WalletRepository {
         throw new AppError('Wallet not found after debit', 500);
       }
 
-      //////////////////////////////////////////////////////
-      // 4️⃣ Ledger Entry
-      //////////////////////////////////////////////////////
-
       const transaction = await tx.transaction.create({
         data: {
           userId,
-          amount: amountInPaise,
+          amount,
           type: TransactionType.DEBIT,
           status: TransactionStatus.SUCCESS,
           referenceId,
@@ -103,26 +92,25 @@ export class WalletRepository {
     });
   }
 
-  /* =====================================================
-     Atomic Credit
-  ===================================================== */
+  //////////////////////////////////////////////////////
+  // ATOMIC CREDIT
+  //////////////////////////////////////////////////////
+
   static async createCredit(
     userId: string,
-    amountInPaise: number,
+    amount: number,
     description: string,
     referenceId?: string
   ) {
-    if (amountInPaise <= 0) {
+
+    if (amount <= 0) {
       throw new AppError('Invalid credit amount', 400);
     }
 
     return prisma.$transaction(async (tx) => {
 
-      //////////////////////////////////////////////////////
-      // Idempotency Check (Optional)
-      //////////////////////////////////////////////////////
-
       if (referenceId) {
+
         const existing = await tx.transaction.findFirst({
           where: { referenceId },
         });
@@ -132,10 +120,6 @@ export class WalletRepository {
         }
       }
 
-      //////////////////////////////////////////////////////
-      // Fetch Wallet
-      //////////////////////////////////////////////////////
-
       const wallet = await tx.wallet.findUnique({
         where: { userId },
       });
@@ -144,25 +128,17 @@ export class WalletRepository {
         throw new AppError('Wallet not found', 404);
       }
 
-      //////////////////////////////////////////////////////
-      // Increment Balance
-      //////////////////////////////////////////////////////
-
       const updatedWallet = await tx.wallet.update({
         where: { userId },
         data: {
-          balance: { increment: amountInPaise },
+          balance: { increment: amount },
         },
       });
-
-      //////////////////////////////////////////////////////
-      // Ledger Entry
-      //////////////////////////////////////////////////////
 
       const transaction = await tx.transaction.create({
         data: {
           userId,
-          amount: amountInPaise,
+          amount,
           type: TransactionType.CREDIT,
           status: TransactionStatus.SUCCESS,
           referenceId,
@@ -173,14 +149,16 @@ export class WalletRepository {
     });
   }
 
-  /* =====================================================
-     Transaction History (Paginated)
-  ===================================================== */
+  //////////////////////////////////////////////////////
+  // TRANSACTION HISTORY
+  //////////////////////////////////////////////////////
+
   static async getTransactionHistory(
     userId: string,
     skip: number,
     take: number
   ) {
+
     const [transactions, total] = await prisma.$transaction([
       prisma.transaction.findMany({
         where: { userId },

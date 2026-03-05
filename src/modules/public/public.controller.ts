@@ -2,6 +2,7 @@ import { Response, Request } from 'express';
 import { PublicService } from './public.service';
 import { asyncHandler } from '../../core/asyncHandler';
 import { ApiResponse } from '../../core/ApiResponse';
+import { AppError } from '../../core/AppError';
 
 export class PublicController {
 
@@ -28,12 +29,13 @@ export class PublicController {
       const { stateId } = req.query;
 
       if (!stateId) {
-        throw new Error('stateId query parameter is required');
+        throw new AppError('stateId query parameter is required', 400);
       }
 
-      const services = await PublicService.getServicesByState(
-        String(stateId)
-      );
+      const services =
+        await PublicService.getServicesByState(
+          String(stateId)
+        );
 
       return ApiResponse.success(
         res,
@@ -51,6 +53,10 @@ export class PublicController {
 
       const { id } = req.params;
 
+      if (!id) {
+        throw new AppError('Service id required', 400);
+      }
+
       const documents =
         await PublicService.getServiceDocuments(id);
 
@@ -63,16 +69,22 @@ export class PublicController {
   );
 
   /* =====================================================
-     GET /api/v1/public/pincode-validate?pincode=xxxxxx
+     POST /api/v1/public/pincode
+     Detect State + District
   ===================================================== */
-  static validatePincode = asyncHandler(
+  static detectStateFromPincode = asyncHandler(
     async (req: Request, res: Response) => {
 
-      const { pincode } = req.query;
+      const { pincode } = req.body;
 
-      const result = await PublicService.validatePincode(
-        String(pincode)
-      );
+      if (!pincode) {
+        throw new AppError('Pincode is required', 400);
+      }
+
+      const result =
+        await PublicService.validatePincode(
+          String(pincode)
+        );
 
       return ApiResponse.success(
         res,
@@ -81,4 +93,5 @@ export class PublicController {
       );
     }
   );
+
 }

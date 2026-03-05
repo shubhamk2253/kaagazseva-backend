@@ -12,96 +12,156 @@ import { env } from '../config/env';
  * KAAGAZSEVA - Global Error Middleware
  * Centralized error normalization & response control.
  */
+
 export const errorMiddleware = (
   error: unknown,
   req: RequestWithUser,
   res: Response,
   next: NextFunction
 ) => {
-  // Prevent sending headers twice
+
   if (res.headersSent) {
     return next(error);
   }
 
   let err = error;
 
-  /* ===============================
-     1️⃣ Normalize Known Error Types
-  ================================= */
+  //////////////////////////////////////////////////////
+  // 1️⃣ NORMALIZE KNOWN ERRORS
+  //////////////////////////////////////////////////////
 
-  // Zod Validation Error
+  // Zod Validation
   if (error instanceof ZodError) {
-    const message = error.errors.map(e => e.message).join(', ');
+
+    const message = error.issues.map(e => e.message).join(', ');
     err = new AppError(message, 400);
+
   }
 
   // Prisma Known Errors
-  if (error instanceof Prisma.PrismaClientKnownRequestError) {
-    if (error.code === 'P2002') {
-      err = new AppError('Duplicate field value entered.', 400);
-    } else {
-      err = new AppError('Database operation failed.', 400);
+  else if (error instanceof Prisma.PrismaClientKnownRequestError) {
+
+    switch (error.code) {
+
+      case 'P2002':
+        err = new AppError('Duplicate field value entered.', 400);
+        break;
+
+      case 'P2025':
+        err = new AppError('Requested record not found.', 404);
+        break;
+
+      case 'P2003':
+        err = new AppError('Invalid relation reference.', 400);
+        break;
+
+      default:
+        err = new AppError('Database operation failed.', 400);
+
     }
+
   }
 
-  // JWT Errors
-  if (error instanceof TokenExpiredError) {
+  // Prisma Validation
+  else if (error instanceof Prisma.PrismaClientValidationError) {
+
+    err = new AppError('Invalid database query.', 400);
+
+  }
+
+  // JWT
+  else if (error instanceof TokenExpiredError) {
+
     err = new AppError('Session expired. Please login again.', 401);
+
   }
 
-  if (error instanceof JsonWebTokenError) {
+  else if (error instanceof JsonWebTokenError) {
+
     err = new AppError('Invalid authentication token.', 401);
+
   }
 
-  // If not AppError, convert to safe AppError
+  // Unknown errors
   if (!(err instanceof AppError)) {
-    err = new AppError('Internal Server Error', 500, false);
+
+    err = new AppError(
+      'Internal Server Error',
+      500,
+      false
+    );
+
   }
 
   const appError = err as AppError;
 
-  /* ===============================
-     2️⃣ Structured Logging
-  ================================= */
+  //////////////////////////////////////////////////////
+  // 2️⃣ STRUCTURED LOGGING
+  //////////////////////////////////////////////////////
 
   logger.error({
+
     message: appError.message,
     statusCode: appError.statusCode,
     requestId: req.requestId,
+
     method: req.method,
     path: req.originalUrl,
+
     userId: req.user?.userId ?? null,
-    stack: env.NODE_ENV === 'development' ? appError.stack : undefined,
+
+    ip: req.ip,
+    userAgent: req.headers['user-agent'],
+
+    stack:
+      env.NODE_ENV === 'development'
+        ? appError.stack
+        : undefined,
+
   });
 
-  /* ===============================
-     3️⃣ Development Mode Response
-  ================================= */
+  //////////////////////////////////////////////////////
+  // 3️⃣ DEVELOPMENT RESPONSE
+  //////////////////////////////////////////////////////
 
   if (env.NODE_ENV === 'development') {
+
     return res.status(appError.statusCode).json({
+
       success: false,
       message: appError.message,
-      stack: appError.stack,
       requestId: req.requestId,
+      timestamp: new Date().toISOString(),
+      stack: appError.stack,
+
     });
+
   }
 
-  /* ===============================
-     4️⃣ Production Safe Response
-  ================================= */
+  //////////////////////////////////////////////////////
+  // 4️⃣ PRODUCTION RESPONSE
+  //////////////////////////////////////////////////////
 
   if (appError.isOperational) {
+
     return res.status(appError.statusCode).json({
+
       success: false,
       message: appError.message,
       requestId: req.requestId,
+      timestamp: new Date().toISOString(),
+
     });
+
   }
 
   return res.status(500).json({
+
     success: false,
     message: 'Something went very wrong. Please contact support.',
     requestId: req.requestId,
+    timestamp: new Date().toISOString(),
+
   });
+
 };

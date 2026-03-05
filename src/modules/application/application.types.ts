@@ -77,6 +77,7 @@ export interface UpdateApplicationStatusInput {
 export interface ApplicationFilters {
   status?: ApplicationStatus;
   serviceType?: string;
+  serviceId?: string;
   customerId?: string;
   agentId?: string;
 

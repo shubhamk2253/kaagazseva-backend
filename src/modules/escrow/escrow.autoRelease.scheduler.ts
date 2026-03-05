@@ -6,31 +6,50 @@ import { EscrowEngine } from './escrow.engine';
  * KAAGAZSEVA - Escrow Auto Release Scheduler
  * Runs every 5 minutes
  */
+
 export class EscrowAutoReleaseScheduler {
 
   private static isRunning = false;
 
-  static start() {
+  static start(): void {
 
     logger.info('💰 Escrow Auto-Release Scheduler Started (Every 5 minutes)');
 
-    cron.schedule('*/5 * * * *', async () => {
+    cron.schedule(
+      '*/5 * * * *',
+      async () => {
 
-      if (this.isRunning) {
-        logger.warn('Escrow scheduler already running. Skipping cycle.');
-        return;
+        //////////////////////////////////////////////////////
+        // Prevent overlapping executions
+        //////////////////////////////////////////////////////
+
+        if (this.isRunning) {
+          logger.warn('Escrow scheduler already running. Skipping cycle.');
+          return;
+        }
+
+        this.isRunning = true;
+
+        try {
+
+          logger.info('⏰ Escrow Scheduler Triggered');
+
+          await EscrowEngine.processAutoRelease();
+
+        } catch (error) {
+
+          logger.error('Escrow Auto Release Scheduler Error', error);
+
+        } finally {
+
+          this.isRunning = false;
+
+        }
+
+      },
+      {
+        timezone: 'Asia/Kolkata',
       }
-
-      this.isRunning = true;
-
-      try {
-        await EscrowEngine.processAutoRelease();
-      } catch (error) {
-        logger.error('Escrow Auto Release Scheduler Error', error);
-      } finally {
-        this.isRunning = false;
-      }
-
-    });
+    );
   }
 }

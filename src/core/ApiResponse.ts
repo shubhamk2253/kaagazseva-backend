@@ -7,26 +7,32 @@ import type { PaginationMeta } from './types';
  */
 export class ApiResponse {
 
-  /**
-   * Standard success response
-   */
+  //////////////////////////////////////////////////////
+  // STANDARD SUCCESS
+  //////////////////////////////////////////////////////
+
   static success<T>(
     res: Response,
     message: string,
     data: T | null = null,
-    statusCode: number = 200
+    statusCode: number = 200,
+    meta?: Record<string, any>
   ) {
+
     return res.status(statusCode).json({
       success: true,
       message,
+      timestamp: new Date().toISOString(),
       data: data ?? null,
+      ...(meta && { meta }),
     });
+
   }
 
-  /**
-   * Paginated success response
-   * Used for list endpoints (Applications, Users, Tickets, etc.)
-   */
+  //////////////////////////////////////////////////////
+  // PAGINATED RESPONSE
+  //////////////////////////////////////////////////////
+
   static paginated<T>(
     res: Response,
     message: string,
@@ -34,33 +40,42 @@ export class ApiResponse {
     meta: PaginationMeta,
     statusCode: number = 200
   ) {
+
     return res.status(statusCode).json({
       success: true,
       message,
+      timestamp: new Date().toISOString(),
       data: items,
       meta,
     });
+
   }
 
-  /**
-   * Created response (201)
-   */
+  //////////////////////////////////////////////////////
+  // CREATED
+  //////////////////////////////////////////////////////
+
   static created<T>(
     res: Response,
     message: string,
     data: T | null = null
   ) {
+
     return res.status(201).json({
       success: true,
       message,
+      timestamp: new Date().toISOString(),
       data: data ?? null,
     });
+
   }
 
-  /**
-   * No Content response (204)
-   */
+  //////////////////////////////////////////////////////
+  // NO CONTENT
+  //////////////////////////////////////////////////////
+
   static noContent(res: Response) {
     return res.status(204).send();
   }
+
 }

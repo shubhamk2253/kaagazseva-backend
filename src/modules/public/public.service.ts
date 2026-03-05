@@ -8,17 +8,13 @@ export class PublicService {
   ===================================================== */
   static async getActiveStates() {
     return prisma.state.findMany({
-      where: {
-        isActive: true,
-      },
+      where: { isActive: true },
       select: {
         id: true,
         name: true,
         code: true,
       },
-      orderBy: {
-        name: 'asc',
-      },
+      orderBy: { name: 'asc' },
     });
   }
 
@@ -50,8 +46,8 @@ export class PublicService {
       select: {
         id: true,
         name: true,
+        slug: true,
         description: true,
-        govtFee: true,
       },
       orderBy: {
         name: 'asc',
@@ -68,18 +64,7 @@ export class PublicService {
       throw new AppError('Service ID is required', 400);
     }
 
-    const serviceExists = await prisma.service.findFirst({
-      where: {
-        id: serviceId,
-        isActive: true,
-      },
-    });
-
-    if (!serviceExists) {
-      throw new AppError('Service not found or inactive', 404);
-    }
-
-    return prisma.serviceRequiredDocument.findMany({
+    const documents = await prisma.serviceRequiredDocument.findMany({
       where: {
         serviceId,
       },
@@ -87,16 +72,23 @@ export class PublicService {
         id: true,
         documentName: true,
         isMandatory: true,
+        order: true,
       },
       orderBy: {
-        documentName: 'asc',
+        order: 'asc',
       },
     });
+
+    if (!documents.length) {
+      throw new AppError('Service documents not found', 404);
+    }
+
+    return documents;
   }
 
   /* =====================================================
      4️⃣ VALIDATE PINCODE
-     GET /api/v1/public/pincode-validate?pincode=xxxxxx
+     POST /api/v1/public/pincode
   ===================================================== */
   static async validatePincode(pincode: string) {
 
@@ -104,7 +96,6 @@ export class PublicService {
       throw new AppError('Pincode is required', 400);
     }
 
-    // Validate 6-digit numeric format
     const isValidFormat = /^[0-9]{6}$/.test(pincode);
 
     if (!isValidFormat) {

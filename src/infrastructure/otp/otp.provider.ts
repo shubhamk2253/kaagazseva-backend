@@ -6,58 +6,91 @@ import { AppError } from '../../core/AppError';
 /**
  * KAAGAZSEVA - OTP Provider
  * Secure bridge to external SMS gateway.
- * Designed for easy provider replacement.
  */
+
 export class OtpProvider {
-  /**
-   * Masks phone number for safe logging
-   */
+
+  /* =====================================================
+     PHONE MASKING
+  ===================================================== */
+
   private static maskPhone(phone: string): string {
     const last4 = phone.slice(-4);
     return `******${last4}`;
   }
 
-  /**
-   * Sends OTP SMS
-   */
+  /* =====================================================
+     SEND OTP SMS
+  ===================================================== */
+
   static async sendSms(phoneNumber: string, otp: string): Promise<void> {
-    const message = `Your KaagazSeva verification code is: ${otp}. Valid for 5 minutes.`;
 
     const maskedPhone = this.maskPhone(phoneNumber);
 
+    const message =
+      `Your KaagazSeva verification code is: ${otp}. Valid for 5 minutes.`;
+
     try {
-      /**
-       * DEVELOPMENT MODE
-       * We log OTP instead of sending SMS to avoid costs.
-       */
+
+      //////////////////////////////////////////////////////
+      // DEVELOPMENT MODE
+      //////////////////////////////////////////////////////
+
       if (env.NODE_ENV === 'development') {
-        logger.info(`[DEV-SMS] → ${maskedPhone} | OTP: ${otp}`);
+
+        logger.info({
+          event: 'DEV_SMS_OTP',
+          phone: maskedPhone,
+        });
+
+        // Developer convenience
+        console.log(`📲 DEV OTP for ${maskedPhone}: ${otp}`);
+
         return;
       }
 
-      /**
-       * PRODUCTION MODE
-       * Replace this with actual provider logic
-       */
+      //////////////////////////////////////////////////////
+      // VALIDATE SMS CONFIG
+      //////////////////////////////////////////////////////
+
+      if (!env.SMS_GATEWAY_KEY || !env.SMS_GATEWAY_URL) {
+        throw new Error('SMS gateway configuration missing');
+      }
+
+      //////////////////////////////////////////////////////
+      // SEND SMS
+      //////////////////////////////////////////////////////
+
       await axios.post(
-        'https://api.sms-provider.com/send',
+        env.SMS_GATEWAY_URL,
         {
           to: phoneNumber,
           message,
-          apiKey: process.env.SMS_GATEWAY_KEY,
+          apiKey: env.SMS_GATEWAY_KEY,
         },
         {
-          timeout: 5000, // Prevent hanging requests
+          timeout: 5000,
         }
       );
 
-      logger.info(`SMS sent successfully → ${maskedPhone}`);
+      logger.info({
+        event: 'SMS_SENT',
+        phone: maskedPhone,
+      });
+
     } catch (error: any) {
-      logger.error(`SMS sending failed → ${maskedPhone}: ${error.message}`);
+
+      logger.error({
+        event: 'SMS_SEND_FAILED',
+        phone: maskedPhone,
+        error: error.message,
+      });
 
       throw new AppError(
         'Unable to send verification code. Please try again.',
-        500
+        500,
+        true,
+        'OTP_SEND_FAILED'
       );
     }
   }

@@ -12,13 +12,14 @@ import logger from '../../core/logger';
  *
  * Rule:
  * COMPLETED → 24hr hold → Auto Release
- * If refundRequested = true → DO NOT release
- * If wallet.isFrozen = true → DO NOT release
+ * If refund exists → DO NOT release
+ * If wallet frozen → DO NOT release
  */
+
 export class EscrowEngine {
 
   //////////////////////////////////////////////////////
-  // 1️⃣ PROCESS AUTO RELEASE
+  // AUTO RELEASE PROCESS
   //////////////////////////////////////////////////////
 
   static async processAutoRelease() {
@@ -26,16 +27,15 @@ export class EscrowEngine {
     logger.info('🔄 Escrow Auto-Release Engine Started');
 
     //////////////////////////////////////////////////////
-    // 1️⃣ Find Eligible Applications
+    // 1️⃣ Find Completed Applications
     //////////////////////////////////////////////////////
 
-    const eligibleApplications = await prisma.application.findMany({
+    const applications = await prisma.application.findMany({
       where: {
         status: ApplicationStatus.COMPLETED,
-        autoReleaseAt: {
-          lte: new Date(),
+        completedAt: {
+          not: null,
         },
-        refundRequested: false,
         escrow: {
           is: {
             isReleased: false,
@@ -44,25 +44,41 @@ export class EscrowEngine {
       },
       include: {
         escrow: true,
+        refundRequests: true,
       },
     });
 
-    if (!eligibleApplications.length) {
-      logger.info('✅ No eligible escrows for release');
+    if (!applications.length) {
+      logger.info('✅ No escrows pending release');
       return;
     }
 
-    logger.info(
-      `⚡ Found ${eligibleApplications.length} escrows to release`
-    );
+    const now = Date.now();
 
     //////////////////////////////////////////////////////
-    // 2️⃣ Process Each Safely
+    // 2️⃣ Process Each Application
     //////////////////////////////////////////////////////
 
-    for (const application of eligibleApplications) {
+    for (const application of applications) {
 
       try {
+
+        if (!application.completedAt) continue;
+
+        const completedTime = new Date(application.completedAt).getTime();
+
+        const holdPeriod = 24 * 60 * 60 * 1000;
+
+        if (now - completedTime < holdPeriod) {
+          continue;
+        }
+
+        if (application.refundRequests.length > 0) {
+          logger.warn(
+            `🚫 Escrow blocked due to refund request → ${application.id}`
+          );
+          continue;
+        }
 
         await prisma.$transaction(async (tx) => {
 
@@ -73,10 +89,6 @@ export class EscrowEngine {
           if (!escrow) return;
           if (escrow.isReleased) return;
 
-          //////////////////////////////////////////////////////
-          // 🔒 Ensure Agent Exists
-          //////////////////////////////////////////////////////
-
           if (!escrow.agentId) {
             logger.warn(
               `Escrow ${escrow.id} has no agent assigned`
@@ -85,48 +97,40 @@ export class EscrowEngine {
           }
 
           //////////////////////////////////////////////////////
-          // 1️⃣ Fetch Wallet
+          // Fetch Agent Wallet
           //////////////////////////////////////////////////////
 
-          const agentWallet = await tx.wallet.findUnique({
+          const wallet = await tx.wallet.findUnique({
             where: { userId: escrow.agentId },
           });
 
-          if (!agentWallet) {
+          if (!wallet) {
             logger.error(
               `Wallet missing for agent ${escrow.agentId}`
             );
             return;
           }
 
-          //////////////////////////////////////////////////////
-          // 🚫 BLOCK IF WALLET FROZEN
-          //////////////////////////////////////////////////////
-
-          if (agentWallet.isFrozen) {
+          if (wallet.isFrozen) {
 
             logger.warn(
-              `🚫 Escrow blocked → Frozen wallet → Agent ${escrow.agentId}`
+              `🚫 Escrow blocked → frozen wallet → agent ${escrow.agentId}`
             );
 
             await tx.auditLog.create({
               data: {
+                userId: escrow.agentId,
                 action: AuditAction.UPDATE,
                 resourceType: 'ESCROW_BLOCKED_FROZEN_WALLET',
                 resourceId: application.id,
-                newData: {
-                  agentId: escrow.agentId,
-                  reason: 'Wallet frozen',
-                },
-                success: false,
               },
             });
 
-            return; // 🚫 DO NOT RELEASE
+            return;
           }
 
           //////////////////////////////////////////////////////
-          // 2️⃣ CREDIT WALLET
+          // Credit Wallet
           //////////////////////////////////////////////////////
 
           await tx.wallet.update({
@@ -139,11 +143,14 @@ export class EscrowEngine {
           });
 
           //////////////////////////////////////////////////////
-          // 3️⃣ Mark Escrow Released
+          // Mark Escrow Released
           //////////////////////////////////////////////////////
 
           await tx.escrowHolding.update({
-            where: { id: escrow.id },
+            where: {
+              id: escrow.id,
+              isReleased: false,
+            },
             data: {
               isReleased: true,
               releasedAt: new Date(),
@@ -151,7 +158,7 @@ export class EscrowEngine {
           });
 
           //////////////////////////////////////////////////////
-          // 4️⃣ Create ESCROW_RELEASE Transaction
+          // Ledger Entry
           //////////////////////////////////////////////////////
 
           await tx.transaction.create({
@@ -167,13 +174,13 @@ export class EscrowEngine {
         });
 
         logger.info(
-          `✅ Escrow released for Application ${application.id}`
+          `✅ Escrow released → Application ${application.id}`
         );
 
       } catch (error) {
 
         logger.error(
-          `❌ Escrow release failed for Application ${application.id}`,
+          `❌ Escrow release failed → Application ${application.id}`,
           error
         );
       }

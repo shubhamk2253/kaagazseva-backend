@@ -1,5 +1,4 @@
 import { prisma } from '../../config/database';
-import { AppError } from '../../core/AppError';
 import logger from '../../core/logger';
 
 /**
@@ -7,10 +6,12 @@ import logger from '../../core/logger';
  * Phase 8 – Founder Emergency Control Layer
  *
  * Allows founder to freeze:
- * payments
- * refunds
- * withdrawals
+ * - payments
+ * - refunds
+ * - withdrawals
  */
+
+const SYSTEM_CONTROL_ID = 'SYSTEM_CONTROL_SINGLETON';
 
 export class SystemControlService {
 
@@ -20,13 +21,16 @@ export class SystemControlService {
 
   static async getStatus() {
 
-    let control = await prisma.systemControl.findFirst();
-
-    if (!control) {
-      control = await prisma.systemControl.create({
-        data: {},
-      });
-    }
+    const control = await prisma.systemControl.upsert({
+      where: { id: SYSTEM_CONTROL_ID },
+      update: {},
+      create: {
+        id: SYSTEM_CONTROL_ID,
+        paymentsFrozen: false,
+        refundsFrozen: false,
+        withdrawalsFrozen: false,
+      },
+    });
 
     return control;
   }
@@ -35,20 +39,39 @@ export class SystemControlService {
   // FREEZE PAYMENTS
   //////////////////////////////////////////////////////
 
-  static async freezePayments() {
+  static async freezePayments(founderId?: string) {
 
-    const control = await prisma.systemControl.upsert({
-      where: { id: 'SYSTEM_CONTROL_SINGLETON' },
-      update: {
-        paymentsFrozen: true,
-      },
-      create: {
-        id: 'SYSTEM_CONTROL_SINGLETON',
-        paymentsFrozen: true,
-      },
+    const control = await prisma.$transaction(async (tx) => {
+
+      const updated = await tx.systemControl.upsert({
+        where: { id: SYSTEM_CONTROL_ID },
+        update: { paymentsFrozen: true },
+        create: {
+          id: SYSTEM_CONTROL_ID,
+          paymentsFrozen: true,
+        },
+      });
+
+      if (founderId) {
+        await tx.auditLog.create({
+          data: {
+            userId: founderId,
+            action: 'UPDATE',
+            resourceType: 'SYSTEM_CONTROL',
+            resourceId: SYSTEM_CONTROL_ID,
+            newData: { paymentsFrozen: true },
+            success: true,
+          },
+        });
+      }
+
+      return updated;
     });
 
-    logger.warn('🚨 Founder froze PAYMENTS system');
+    logger.warn({
+      event: 'SYSTEM_PAYMENTS_FROZEN',
+      actor: founderId ?? 'unknown',
+    });
 
     return control;
   }
@@ -57,20 +80,39 @@ export class SystemControlService {
   // FREEZE REFUNDS
   //////////////////////////////////////////////////////
 
-  static async freezeRefunds() {
+  static async freezeRefunds(founderId?: string) {
 
-    const control = await prisma.systemControl.upsert({
-      where: { id: 'SYSTEM_CONTROL_SINGLETON' },
-      update: {
-        refundsFrozen: true,
-      },
-      create: {
-        id: 'SYSTEM_CONTROL_SINGLETON',
-        refundsFrozen: true,
-      },
+    const control = await prisma.$transaction(async (tx) => {
+
+      const updated = await tx.systemControl.upsert({
+        where: { id: SYSTEM_CONTROL_ID },
+        update: { refundsFrozen: true },
+        create: {
+          id: SYSTEM_CONTROL_ID,
+          refundsFrozen: true,
+        },
+      });
+
+      if (founderId) {
+        await tx.auditLog.create({
+          data: {
+            userId: founderId,
+            action: 'UPDATE',
+            resourceType: 'SYSTEM_CONTROL',
+            resourceId: SYSTEM_CONTROL_ID,
+            newData: { refundsFrozen: true },
+            success: true,
+          },
+        });
+      }
+
+      return updated;
     });
 
-    logger.warn('🚨 Founder froze REFUNDS system');
+    logger.warn({
+      event: 'SYSTEM_REFUNDS_FROZEN',
+      actor: founderId ?? 'unknown',
+    });
 
     return control;
   }
@@ -79,20 +121,39 @@ export class SystemControlService {
   // FREEZE WITHDRAWALS
   //////////////////////////////////////////////////////
 
-  static async freezeWithdrawals() {
+  static async freezeWithdrawals(founderId?: string) {
 
-    const control = await prisma.systemControl.upsert({
-      where: { id: 'SYSTEM_CONTROL_SINGLETON' },
-      update: {
-        withdrawalsFrozen: true,
-      },
-      create: {
-        id: 'SYSTEM_CONTROL_SINGLETON',
-        withdrawalsFrozen: true,
-      },
+    const control = await prisma.$transaction(async (tx) => {
+
+      const updated = await tx.systemControl.upsert({
+        where: { id: SYSTEM_CONTROL_ID },
+        update: { withdrawalsFrozen: true },
+        create: {
+          id: SYSTEM_CONTROL_ID,
+          withdrawalsFrozen: true,
+        },
+      });
+
+      if (founderId) {
+        await tx.auditLog.create({
+          data: {
+            userId: founderId,
+            action: 'UPDATE',
+            resourceType: 'SYSTEM_CONTROL',
+            resourceId: SYSTEM_CONTROL_ID,
+            newData: { withdrawalsFrozen: true },
+            success: true,
+          },
+        });
+      }
+
+      return updated;
     });
 
-    logger.warn('🚨 Founder froze WITHDRAWALS system');
+    logger.warn({
+      event: 'SYSTEM_WITHDRAWALS_FROZEN',
+      actor: founderId ?? 'unknown',
+    });
 
     return control;
   }
@@ -101,24 +162,49 @@ export class SystemControlService {
   // UNFREEZE EVERYTHING
   //////////////////////////////////////////////////////
 
-  static async unfreezeAll() {
+  static async unfreezeAll(founderId?: string) {
 
-    const control = await prisma.systemControl.upsert({
-      where: { id: 'SYSTEM_CONTROL_SINGLETON' },
-      update: {
-        paymentsFrozen: false,
-        refundsFrozen: false,
-        withdrawalsFrozen: false,
-      },
-      create: {
-        id: 'SYSTEM_CONTROL_SINGLETON',
-        paymentsFrozen: false,
-        refundsFrozen: false,
-        withdrawalsFrozen: false,
-      },
+    const control = await prisma.$transaction(async (tx) => {
+
+      const updated = await tx.systemControl.upsert({
+        where: { id: SYSTEM_CONTROL_ID },
+        update: {
+          paymentsFrozen: false,
+          refundsFrozen: false,
+          withdrawalsFrozen: false,
+        },
+        create: {
+          id: SYSTEM_CONTROL_ID,
+          paymentsFrozen: false,
+          refundsFrozen: false,
+          withdrawalsFrozen: false,
+        },
+      });
+
+      if (founderId) {
+        await tx.auditLog.create({
+          data: {
+            userId: founderId,
+            action: 'UPDATE',
+            resourceType: 'SYSTEM_CONTROL',
+            resourceId: SYSTEM_CONTROL_ID,
+            newData: {
+              paymentsFrozen: false,
+              refundsFrozen: false,
+              withdrawalsFrozen: false,
+            },
+            success: true,
+          },
+        });
+      }
+
+      return updated;
     });
 
-    logger.warn('✅ Founder restored financial systems');
+    logger.warn({
+      event: 'SYSTEM_FINANCIALS_RESTORED',
+      actor: founderId ?? 'unknown',
+    });
 
     return control;
   }

@@ -1,12 +1,31 @@
 import { prisma } from '../../config/database';
 import { AppError } from '../../core/AppError';
-import { RefundStatus, TransactionStatus, UserRole } from '@prisma/client';
+import {
+  RefundStatus,
+  TransactionStatus,
+  TransactionType,
+  ApplicationStatus,
+  UserRole,
+} from '@prisma/client';
 import logger from '../../core/logger';
+import { AnomalyEngine } from '../security/anomaly.engine';
 
 export class RefundRequestService {
 
   //////////////////////////////////////////////////////
-  // 1️⃣ CUSTOMER REQUEST REFUND
+  // SYSTEM CONTROL HELPER
+  //////////////////////////////////////////////////////
+
+  private static async getSystemControl() {
+    return prisma.systemControl.upsert({
+      where: { id: 'SYSTEM_CONTROL_SINGLETON' },
+      update: {},
+      create: { id: 'SYSTEM_CONTROL_SINGLETON' },
+    });
+  }
+
+  //////////////////////////////////////////////////////
+  // CUSTOMER REQUEST REFUND
   //////////////////////////////////////////////////////
 
   static async requestRefund(
@@ -77,13 +96,17 @@ export class RefundRequestService {
       },
     });
 
-    logger.info(`Refund REQUESTED → App=${applicationId}`);
+    logger.info({
+      event: 'REFUND_REQUESTED',
+      applicationId,
+      amount,
+    });
 
     return refund;
   }
 
   //////////////////////////////////////////////////////
-  // 2️⃣ STATE STATE_ADMIN REVIEW
+  // ADMIN REVIEW REFUND
   //////////////////////////////////////////////////////
 
   static async reviewRefund(
@@ -97,7 +120,10 @@ export class RefundRequestService {
       reviewerRole !== UserRole.STATE_ADMIN &&
       reviewerRole !== UserRole.FOUNDER
     ) {
-      throw new AppError('Only State Admin or Founder can review refund', 403);
+      throw new AppError(
+        'Only State Admin or Founder can review refund',
+        403
+      );
     }
 
     const refund = await prisma.refundRequest.findUnique({
@@ -123,15 +149,17 @@ export class RefundRequestService {
       },
     });
 
-    logger.info(
-      `Refund ${decision} → RefundId=${refundId}`
-    );
+    logger.info({
+      event: 'REFUND_REVIEWED',
+      refundId,
+      decision,
+    });
 
     return updated;
   }
 
   //////////////////////////////////////////////////////
-  // 3️⃣ PROCESS APPROVED REFUND (FINANCIAL CORE)
+  // PROCESS APPROVED REFUND
   //////////////////////////////////////////////////////
 
   static async processApprovedRefund(
@@ -139,7 +167,16 @@ export class RefundRequestService {
     processorId: string
   ) {
 
-    return prisma.$transaction(async (tx) => {
+    const systemControl = await this.getSystemControl();
+
+    if (systemControl.refundsFrozen) {
+      throw new AppError(
+        'Refund processing temporarily disabled.',
+        503
+      );
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
 
       const refund = await tx.refundRequest.findUnique({
         where: { id: refundId },
@@ -154,7 +191,7 @@ export class RefundRequestService {
         throw new AppError('Refund request not found', 404);
       }
 
-      if (refund.status !== 'APPROVED') {
+      if (refund.status !== RefundStatus.APPROVED) {
         throw new AppError('Refund not approved', 400);
       }
 
@@ -176,10 +213,6 @@ export class RefundRequestService {
         throw new AppError('Refund exceeds escrow balance', 400);
       }
 
-      //////////////////////////////////////////////////////
-      // PLATFORM FIRST DEDUCTION
-      //////////////////////////////////////////////////////
-
       let remainingRefund = refundAmount;
 
       let platformAmount = Number(escrow.platformAmount);
@@ -188,7 +221,10 @@ export class RefundRequestService {
       let platformDeducted = 0;
       let agentDeducted = 0;
 
-      // 1️⃣ Deduct from platform
+      //////////////////////////////////////////////////////
+      // Deduct platform first
+      //////////////////////////////////////////////////////
+
       if (platformAmount > 0) {
         const deduct = Math.min(platformAmount, remainingRefund);
         platformDeducted = deduct;
@@ -196,7 +232,10 @@ export class RefundRequestService {
         remainingRefund -= deduct;
       }
 
-      // 2️⃣ Deduct remaining from agent
+      //////////////////////////////////////////////////////
+      // Deduct agent second
+      //////////////////////////////////////////////////////
+
       if (remainingRefund > 0) {
         const deduct = Math.min(agentAmount, remainingRefund);
         agentDeducted = deduct;
@@ -218,6 +257,10 @@ export class RefundRequestService {
           totalAmount: totalEscrow - refundAmount,
           platformAmount,
           agentAmount,
+          ...(refundAmount === totalEscrow && {
+            isReleased: true,
+            releasedAt: new Date(),
+          }),
         },
       });
 
@@ -229,14 +272,14 @@ export class RefundRequestService {
         data: {
           userId: application.customerId,
           amount: refundAmount,
-          type: 'REFUND',
-          status: 'SUCCESS',
+          type: TransactionType.REFUND,
+          status: TransactionStatus.SUCCESS,
           referenceId: application.id,
         },
       });
 
       //////////////////////////////////////////////////////
-      // COMMISSION ROLLBACK TRANSACTIONS
+      // ROLLBACK TRANSACTIONS
       //////////////////////////////////////////////////////
 
       if (platformDeducted > 0) {
@@ -244,8 +287,8 @@ export class RefundRequestService {
           data: {
             userId: application.customerId,
             amount: platformDeducted,
-            type: 'DEBIT',
-            status: 'SUCCESS',
+            type: TransactionType.DEBIT,
+            status: TransactionStatus.SUCCESS,
             referenceId: `PLATFORM_ROLLBACK_${application.id}`,
           },
         });
@@ -256,23 +299,23 @@ export class RefundRequestService {
           data: {
             userId: application.agentId,
             amount: agentDeducted,
-            type: 'DEBIT',
-            status: 'SUCCESS',
+            type: TransactionType.DEBIT,
+            status: TransactionStatus.SUCCESS,
             referenceId: `AGENT_ROLLBACK_${application.id}`,
           },
         });
       }
 
       //////////////////////////////////////////////////////
-      // FULL REFUND → CANCEL APPLICATION
+      // FULL REFUND CANCELS APPLICATION
       //////////////////////////////////////////////////////
 
       if (refundAmount === totalEscrow) {
         await tx.application.update({
           where: { id: application.id },
           data: {
-            paymentStatus: 'REFUNDED',
-            status: 'CANCELLED',
+            paymentStatus: TransactionStatus.REFUNDED,
+            status: ApplicationStatus.CANCELLED,
           },
         });
       }
@@ -284,13 +327,13 @@ export class RefundRequestService {
       await tx.refundRequest.update({
         where: { id: refundId },
         data: {
-          status: 'PROCESSED',
+          status: RefundStatus.PROCESSED,
           processedAt: new Date(),
         },
       });
 
       //////////////////////////////////////////////////////
-      // AUDIT ENTRY
+      // AUDIT LOG
       //////////////////////////////////////////////////////
 
       await tx.auditLog.create({
@@ -303,18 +346,34 @@ export class RefundRequestService {
         },
       });
 
-      logger.info(
-        `Refund PROCESSED → ${refundId} | Amount=${refundAmount}`
-      );
+      logger.info({
+        event: 'REFUND_PROCESSED',
+        refundId,
+        amount: refundAmount,
+      });
 
       return {
         refundedAmount: refundAmount,
         platformDeducted,
         agentDeducted,
+        customerId: application.customerId,
       };
-
     });
 
+    //////////////////////////////////////////////////////
+    // FRAUD ANALYSIS (POST TRANSACTION)
+    //////////////////////////////////////////////////////
+
+    try {
+      await AnomalyEngine.analyzeRefund(result.customerId);
+    } catch (err) {
+      logger.error({
+        event: 'REFUND_ANOMALY_ENGINE_FAILED',
+        error: err,
+      });
+    }
+
+    return result;
   }
 
 }

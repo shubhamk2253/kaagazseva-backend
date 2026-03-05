@@ -1,21 +1,22 @@
-import { Response, NextFunction } from 'express';
+import { Response } from 'express';
 import { EscalationService } from './escalation.service';
-import { AppError } from '../../core/AppError';
-import logger from '../../core/logger';
+import { asyncHandler } from '../../core/asyncHandler';
+import { ApiResponse } from '../../core/ApiResponse';
 import { RequestWithUser } from '../../core/types';
+import { AppError } from '../../core/AppError';
 
+/**
+ * KAAGAZSEVA - Escalation Controller
+ * Handles suspension case escalation flow.
+ */
 export class EscalationController {
 
   //////////////////////////////////////////////////////
   // ESCALATE CASE
   //////////////////////////////////////////////////////
 
-  static async escalate(
-    req: RequestWithUser,
-    res: Response,
-    next: NextFunction
-  ) {
-    try {
+  static escalate = asyncHandler(
+    async (req: RequestWithUser, res: Response) => {
 
       const { caseId } = req.params;
 
@@ -34,15 +35,13 @@ export class EscalationController {
         escalatedById
       );
 
-      return res.status(200).json({
-        success: true,
-        ...result,
-      });
+      return ApiResponse.success(
+        res,
+        'Case escalated successfully',
+        result
+      );
 
-    } catch (error) {
-      logger.error('Escalation error', error);
-      next(error);
     }
-  }
+  );
 
 }

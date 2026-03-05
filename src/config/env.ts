@@ -66,7 +66,8 @@ const envSchema = z.object({
 
   JWT_ACCESS_EXPIRES_IN: z.string().default('15m'),
   JWT_REFRESH_EXPIRES_IN: z.string().default('7d'),
-
+  SMS_GATEWAY_KEY: z.string().optional(),
+  SMS_GATEWAY_URL: z.string().optional(),
   /* =====================================================
      AWS S3
   ===================================================== */

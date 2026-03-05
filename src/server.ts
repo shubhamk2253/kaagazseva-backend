@@ -1,82 +1,164 @@
 import http from 'http';
 import app from './app';
-import { prisma } from './config/database';
+
+import{ prisma }from './config/database';
 import { redis } from './config/redis';
+
 import { NotificationWorker } from './modules/notification/notification.worker';
 import { AssignmentScheduler } from './modules/assignment/assignment.scheduler';
-import { EscrowAutoReleaseScheduler } 
-from './modules/escrow/escrow.autoRelease.scheduler';
+import { EscrowAutoReleaseScheduler } from './modules/escrow/escrow.autoRelease.scheduler';
+
 import logger from './core/logger';
 
-const PORT = process.env.PORT ||6379;
-app.listen(PORT)
+const PORT = Number(process.env.PORT) || 5000;
+
+let server: http.Server;
+
 /**
- * KAAGAZSEVA - Server Bootstrapper
- * Initializes infrastructure and starts the HTTP server.
+ * KAAGAZSEVA - Server Bootstrap
  */
 
 async function bootstrap() {
+
   try {
-    logger.info('🔄 Starting KaagazSeva Backend...');
 
-    //////////////////////////////////////////////////////
-    // 1️⃣ Connect Database
-    //////////////////////////////////////////////////////
-    await prisma.$connect();
-    logger.info('✅ PostgreSQL connected successfully');
-
-    //////////////////////////////////////////////////////
-    // 2️⃣ Connect Redis
-    //////////////////////////////////////////////////////
-    await redis.ping();
-    logger.info('✅ Redis connected successfully');
-
-    //////////////////////////////////////////////////////
-    // 3️⃣ Start HTTP Server
-    //////////////////////////////////////////////////////
-    const server = http.createServer(app);
-
-    server.listen(PORT, () => {
-      logger.info(`🌍 Server running on port ${PORT}`);
-      logger.info(`📡 API: http://localhost:${PORT}/api/v1`);
-
-      //////////////////////////////////////////////////////
-      // 🔥 Start Schedulers ONLY in Production
-      //////////////////////////////////////////////////////
-      if (process.env.NODE_ENV === 'production') {
-
-        NotificationWorker.start();
-        logger.info('🚀 Notification Worker initialized');
-
-        AssignmentScheduler.start();
-        logger.info('🕒 Assignment Scheduler started');
-
-        EscrowAutoReleaseScheduler.start();
-        logger.info('💰 Escrow Auto-Release Scheduler started');
-      }
+    logger.info({
+      event: 'SERVER_BOOTSTRAP_START'
     });
 
     //////////////////////////////////////////////////////
-    // 4️⃣ Graceful Shutdown
+    // DATABASE
     //////////////////////////////////////////////////////
-    const shutdown = async () => {
-      logger.warn('⚠️ Graceful shutdown initiated...');
 
-      server.close(async () => {
-        await prisma.$disconnect();
-        await redis.quit();
-        logger.info('🛑 Server shut down cleanly');
-        process.exit(0);
+    await prisma.$connect();
+
+    logger.info({
+      event: 'POSTGRES_CONNECTED'
+    });
+
+    //////////////////////////////////////////////////////
+    // REDIS
+    //////////////////////////////////////////////////////
+
+    await redis.connect();
+
+    logger.info({
+      event: 'REDIS_CONNECTED'
+    });
+
+    //////////////////////////////////////////////////////
+    // HTTP SERVER
+    //////////////////////////////////////////////////////
+
+    server = http.createServer(app);
+
+    server.listen(PORT, () => {
+
+      logger.info({
+        event: 'SERVER_STARTED',
+        port: PORT,
+        api: `/api/v1`
       });
+
+    });
+
+    //////////////////////////////////////////////////////
+    // SERVER ERROR HANDLING
+    //////////////////////////////////////////////////////
+
+    server.on('error', (error) => {
+
+      logger.error({
+        event: 'SERVER_ERROR',
+        error
+      });
+
+      process.exit(1);
+
+    });
+
+    //////////////////////////////////////////////////////
+    // START BACKGROUND SERVICES
+    //////////////////////////////////////////////////////
+
+    const enableWorkers =
+      process.env.ENABLE_WORKERS === 'true';
+
+    if (enableWorkers) {
+
+      NotificationWorker.start();
+
+      logger.info({
+        event: 'NOTIFICATION_WORKER_STARTED'
+      });
+
+      AssignmentScheduler.start();
+
+      logger.info({
+        event: 'ASSIGNMENT_SCHEDULER_STARTED'
+      });
+
+      EscrowAutoReleaseScheduler.start();
+
+      logger.info({
+        event: 'ESCROW_SCHEDULER_STARTED'
+      });
+
+    }
+
+    //////////////////////////////////////////////////////
+    // GRACEFUL SHUTDOWN
+    //////////////////////////////////////////////////////
+
+    const shutdown = async () => {
+
+      logger.warn({
+        event: 'SERVER_SHUTDOWN_INIT'
+      });
+
+      try {
+
+        server.close(async () => {
+
+          await prisma.$disconnect();
+
+          await redis.quit();
+
+          logger.info({
+            event: 'SERVER_SHUTDOWN_COMPLETE'
+          });
+
+          process.exit(0);
+
+        });
+
+      } catch (error) {
+
+        logger.error({
+          event: 'SHUTDOWN_FAILED',
+          error
+        });
+
+        process.exit(1);
+
+      }
+
     };
 
     process.on('SIGINT', shutdown);
     process.on('SIGTERM', shutdown);
 
   } catch (error) {
-    logger.error('❌ Failed to start server:', error);
+
+    logger.error({
+      event: 'BOOTSTRAP_FAILED',
+      error
+    });
+
     process.exit(1);
+
   }
+
 }
 
 bootstrap();

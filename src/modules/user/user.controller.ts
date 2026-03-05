@@ -3,6 +3,9 @@ import { UserService } from './user.service';
 import { asyncHandler } from '../../core/asyncHandler';
 import { ApiResponse } from '../../core/ApiResponse';
 import { RequestWithUser } from '../../core/types';
+import { AppError } from '../../core/AppError';
+import logger from '../../core/logger';
+import { UserRole } from '@prisma/client';
 
 /**
  * KAAGAZSEVA - User Controller
@@ -10,11 +13,12 @@ import { RequestWithUser } from '../../core/types';
  */
 export class UserController {
 
-  /**
-   * GET /api/v1/users/me
-   * Fetch current logged-in user's profile
-   */
+  //////////////////////////////////////////////////////
+  // GET CURRENT USER PROFILE
+  //////////////////////////////////////////////////////
+
   static getMe = asyncHandler(async (req: RequestWithUser, res: Response) => {
+
     const userId = req.user!.userId;
 
     const profile = await UserService.getProfile(userId);
@@ -24,32 +28,55 @@ export class UserController {
       'Profile retrieved successfully',
       profile
     );
+
   });
 
-  /**
-   * PATCH /api/v1/users/me
-   * Update own profile
-   */
-  static updateMe = asyncHandler(async (req: RequestWithUser, res: Response) => {
-    const userId = req.user!.userId;
+  //////////////////////////////////////////////////////
+  // UPDATE OWN PROFILE
+  //////////////////////////////////////////////////////
 
-    const updatedProfile = await UserService.updateProfile(userId, {
-      name: req.body.name,
-    });
+  static updateMe = asyncHandler(async (req: RequestWithUser, res: Response) => {
+
+    const userId = req.user!.userId;
+    const { name } = req.body;
+
+    if (!name || typeof name !== 'string') {
+      throw new AppError('Valid name is required', 400);
+    }
+
+    const updatedProfile = await UserService.updateProfile(
+      userId,
+      { name }
+    );
 
     return ApiResponse.success(
       res,
       'Profile updated successfully',
       updatedProfile
     );
+
   });
 
-  /**
-   * GET /api/v1/users/admin/all
-   * Admin only: List users with filters
-   */
+  //////////////////////////////////////////////////////
+  // ADMIN: GET ALL USERS
+  //////////////////////////////////////////////////////
+
   static adminGetAllUsers = asyncHandler(async (req: RequestWithUser, res: Response) => {
-    const filters = req.query as any;
+
+    const roleQuery = req.query.role as string | undefined;
+
+    let role: UserRole | undefined;
+
+    if (roleQuery && Object.values(UserRole).includes(roleQuery as UserRole)) {
+      role = roleQuery as UserRole;
+    }
+
+    const filters = {
+      role,
+      search: req.query.search as string | undefined,
+      page: req.query.page ? Number(req.query.page) : undefined,
+      limit: req.query.limit ? Number(req.query.limit) : undefined,
+    };
 
     const result = await UserService.getAllUsers(filters);
 
@@ -58,16 +85,22 @@ export class UserController {
       'Users fetched successfully',
       result
     );
+
   });
 
-  /**
-   * PATCH /api/v1/users/admin/:id/status
-   * Admin only: Suspend or activate user
-   */
+  //////////////////////////////////////////////////////
+  // ADMIN: TOGGLE USER STATUS
+  //////////////////////////////////////////////////////
+
   static adminUpdateStatus = asyncHandler(async (req: RequestWithUser, res: Response) => {
+
     const adminId = req.user!.userId;
     const { id } = req.params;
     const { isActive } = req.body;
+
+    if (typeof isActive !== 'boolean') {
+      throw new AppError('isActive must be boolean', 400);
+    }
 
     const result = await UserService.toggleUserStatus(
       adminId,
@@ -75,10 +108,19 @@ export class UserController {
       isActive
     );
 
+    logger.warn({
+      event: 'ADMIN_USER_STATUS_UPDATED',
+      adminId,
+      targetUserId: id,
+      isActive,
+    });
+
     return ApiResponse.success(
       res,
       `User account ${isActive ? 'activated' : 'suspended'} successfully`,
       result
     );
+
   });
+
 }

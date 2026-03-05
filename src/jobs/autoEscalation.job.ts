@@ -1,115 +1,161 @@
 import cron from 'node-cron';
 import { prisma } from '../config/database';
+import { redis } from '../config/redis';
 import { SuspensionStatus, UserRole } from '@prisma/client';
 import logger from '../core/logger';
 
-///////////////////////////////////////////////////////////
-// AUTO ESCALATION JOB
-// Runs every 10 minutes
-///////////////////////////////////////////////////////////
+/**
+ * KAAGAZSEVA - Auto Escalation Scheduler
+ * Escalates unresolved suspension cases.
+ */
 
-cron.schedule('*/10 * * * *', async () => {
-  try {
+export const startAutoEscalationJob = () => {
 
-    const now = new Date();
+  logger.info('Auto Escalation Job Scheduled (Every 10 minutes)');
 
-    //////////////////////////////////////////////////////
-    // Find expired suspension reviews
-    //////////////////////////////////////////////////////
+  cron.schedule('*/10 * * * *', async () => {
 
-    const expiredUsers = await prisma.user.findMany({
-      where: {
-        suspensionStatus: SuspensionStatus.UNDER_REVIEW,
-        suspensionReviewDeadline: {
-          lt: now,
-        },
-      },
-    });
+    const lockKey = 'auto-escalation-lock';
 
-    if (!expiredUsers.length) {
-      return;
-    }
+    try {
 
-    for (const user of expiredUsers) {
+      //////////////////////////////////////////////////////
+      // DISTRIBUTED LOCK (Prevents duplicate execution)
+      //////////////////////////////////////////////////////
 
-      const activeCase = await prisma.suspensionCase.findFirst({
+      const lock = await redis.set(
+        lockKey,
+        '1',
+        'EX',
+        600,
+        'NX'
+      );
+
+      if (!lock) {
+        logger.warn('Auto Escalation skipped (lock active)');
+        return;
+      }
+
+      const now = new Date();
+
+      //////////////////////////////////////////////////////
+      // Fetch Authorities Once
+      //////////////////////////////////////////////////////
+
+      const stateAdmin = await prisma.user.findFirst({
+        where: { role: UserRole.STATE_ADMIN },
+      });
+
+      const founder = await prisma.user.findFirst({
+        where: { role: UserRole.FOUNDER },
+      });
+
+      //////////////////////////////////////////////////////
+      // Fetch Expired Suspension Cases
+      //////////////////////////////////////////////////////
+
+      const expiredCases = await prisma.suspensionCase.findMany({
         where: {
-          userId: user.id,
           status: SuspensionStatus.UNDER_REVIEW,
+          user: {
+            suspensionReviewDeadline: {
+              lt: now,
+            },
+          },
+        },
+        include: {
+          user: true,
         },
       });
 
-      if (!activeCase) continue;
+      if (!expiredCases.length) {
 
-      //////////////////////////////////////////////////////
-      // Prevent escalation beyond Level 3
-      //////////////////////////////////////////////////////
-
-      if (activeCase.level >= 3) continue;
-
-      const nextLevel = activeCase.level + 1;
-
-      const escalatedToRole =
-        nextLevel === 2
-          ? UserRole.STATE_ADMIN
-          : UserRole.FOUNDER;
-
-      const escalatedAuthority = await prisma.user.findFirst({
-        where: { role: escalatedToRole },
-      });
-
-      if (!escalatedAuthority) continue;
-
-      const newDeadline = new Date(
-        Date.now() + 48 * 60 * 60 * 1000
-      );
-
-      //////////////////////////////////////////////////////
-      // Transaction
-      //////////////////////////////////////////////////////
-
-      await prisma.$transaction(async (tx) => {
-
-        await tx.suspensionCase.update({
-          where: { id: activeCase.id },
-          data: {
-            level: nextLevel,
-            status: SuspensionStatus.AUTO_ESCALATED,
-            escalatedToId: escalatedAuthority.id,
-          },
+        logger.info({
+          event: 'AUTO_ESCALATION_NONE'
         });
 
-        await tx.user.update({
-          where: { id: user.id },
-          data: {
-            suspensionLevel: nextLevel,
-            suspensionStatus: SuspensionStatus.AUTO_ESCALATED,
-            suspensionReviewDeadline: newDeadline,
-          },
-        });
+        return;
+      }
 
-        await tx.auditLog.create({
-          data: {
-            action: 'UPDATE',
-            resourceType: 'AUTO_ESCALATION',
-            resourceId: user.id,
-            newData: {
-              previousLevel: activeCase.level,
-              newLevel: nextLevel,
+      //////////////////////////////////////////////////////
+      // Process Each Case
+      //////////////////////////////////////////////////////
+
+      for (const suspension of expiredCases) {
+
+        if (suspension.level >= 3) continue;
+
+        const nextLevel = suspension.level + 1;
+
+        const authority =
+          nextLevel === 2 ? stateAdmin : founder;
+
+        if (!authority) continue;
+
+        const newDeadline = new Date(
+          Date.now() + 48 * 60 * 60 * 1000
+        );
+
+        await prisma.$transaction(async (tx) => {
+
+          await tx.suspensionCase.update({
+            where: { id: suspension.id },
+            data: {
+              level: nextLevel,
+              status: SuspensionStatus.AUTO_ESCALATED,
+              escalatedToId: authority.id,
             },
-            success: true,
-          },
+          });
+
+          await tx.user.update({
+            where: { id: suspension.userId },
+            data: {
+              suspensionLevel: nextLevel,
+              suspensionStatus: SuspensionStatus.AUTO_ESCALATED,
+              suspensionReviewDeadline: newDeadline,
+            },
+          });
+
+          await tx.auditLog.create({
+            data: {
+              action: 'UPDATE',
+              resourceType: 'AUTO_ESCALATION',
+              resourceId: suspension.userId,
+              newData: {
+                previousLevel: suspension.level,
+                newLevel: nextLevel,
+              },
+              success: true,
+            },
+          });
+
         });
 
+        logger.warn({
+          event: 'AUTO_ESCALATION',
+          userId: suspension.userId,
+          level: nextLevel,
+        });
+
+      }
+
+    } catch (error) {
+
+      logger.error({
+        event: 'AUTO_ESCALATION_FAILED',
+        error
       });
 
-      logger.warn(
-        `AUTO ESCALATION → User ${user.id} moved to level ${nextLevel}`
-      );
+    } finally {
+
+      //////////////////////////////////////////////////////
+      // Release lock
+      //////////////////////////////////////////////////////
+
+      await redis.del(lockKey);
 
     }
 
-  } catch (error) {
-    logger.error('Auto Escalation Job Failed', error);
-  }
-});
+  });
+
+};

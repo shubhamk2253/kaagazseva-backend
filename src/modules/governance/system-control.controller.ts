@@ -1,6 +1,8 @@
 import { Response, NextFunction } from 'express';
 import { RequestWithUser } from '../../core/types';
 import { SystemControlService } from './system-control.service';
+import { ApiResponse } from '../../core/ApiResponse';
+import { AppError } from '../../core/AppError';
 
 /**
  * KAAGAZSEVA - System Control Controller
@@ -14,7 +16,7 @@ export class SystemControlController {
   //////////////////////////////////////////////////////
 
   static async getStatus(
-    req: RequestWithUser,
+    _req: RequestWithUser,
     res: Response,
     next: NextFunction
   ) {
@@ -22,11 +24,11 @@ export class SystemControlController {
 
       const data = await SystemControlService.getStatus();
 
-      res.status(200).json({
-        success: true,
-        message: 'System status retrieved',
-        data,
-      });
+      return ApiResponse.success(
+        res,
+        'System status retrieved',
+        data
+      );
 
     } catch (error) {
       next(error);
@@ -44,13 +46,19 @@ export class SystemControlController {
   ) {
     try {
 
-      const data = await SystemControlService.freezePayments();
+      const userId = req.user?.userId;
 
-      res.status(200).json({
-        success: true,
-        message: 'Payments system frozen',
-        data,
-      });
+      if (!userId) {
+        throw new AppError('Unauthorized', 401);
+      }
+
+      const data = await SystemControlService.freezePayments(userId);
+
+      return ApiResponse.success(
+        res,
+        'Payments system frozen',
+        data
+      );
 
     } catch (error) {
       next(error);
@@ -68,13 +76,19 @@ export class SystemControlController {
   ) {
     try {
 
-      const data = await SystemControlService.freezeRefunds();
+      const userId = req.user?.userId;
 
-      res.status(200).json({
-        success: true,
-        message: 'Refund system frozen',
-        data,
-      });
+      if (!userId) {
+        throw new AppError('Unauthorized', 401);
+      }
+
+      const data = await SystemControlService.freezeRefunds(userId);
+
+      return ApiResponse.success(
+        res,
+        'Refund system frozen',
+        data
+      );
 
     } catch (error) {
       next(error);
@@ -92,13 +106,19 @@ export class SystemControlController {
   ) {
     try {
 
-      const data = await SystemControlService.freezeWithdrawals();
+      const userId = req.user?.userId;
 
-      res.status(200).json({
-        success: true,
-        message: 'Withdrawals system frozen',
-        data,
-      });
+      if (!userId) {
+        throw new AppError('Unauthorized', 401);
+      }
+
+      const data = await SystemControlService.freezeWithdrawals(userId);
+
+      return ApiResponse.success(
+        res,
+        'Withdrawals system frozen',
+        data
+      );
 
     } catch (error) {
       next(error);
@@ -116,13 +136,19 @@ export class SystemControlController {
   ) {
     try {
 
-      const data = await SystemControlService.unfreezeAll();
+      const userId = req.user?.userId;
 
-      res.status(200).json({
-        success: true,
-        message: 'Financial systems restored',
-        data,
-      });
+      if (!userId) {
+        throw new AppError('Unauthorized', 401);
+      }
+
+      const data = await SystemControlService.unfreezeAll(userId);
+
+      return ApiResponse.success(
+        res,
+        'Financial systems restored',
+        data
+      );
 
     } catch (error) {
       next(error);

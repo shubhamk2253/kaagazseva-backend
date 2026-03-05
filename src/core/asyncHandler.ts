@@ -5,13 +5,16 @@ import { Request, Response, NextFunction } from 'express';
  * Eliminates try/catch blocks in controllers.
  * Automatically forwards errors to global error middleware.
  */
+
 export const asyncHandler =
   <
     Req extends Request = Request,
     Res extends Response = Response
   >(
-    fn: (req: Req, res: Res, next: NextFunction) => Promise<any>
+    fn: (req: Req, res: Res, next: NextFunction) => Promise<unknown>
   ) =>
   (req: Req, res: Res, next: NextFunction): void => {
-    fn(req, res, next).catch(next);
+
+    Promise.resolve(fn(req, res, next)).catch(next);
+
   };

@@ -6,7 +6,8 @@ import { TokenPayload } from '../../core/types';
  */
 
 /* =====================================================
-   Token Pair Returned After Login / Refresh
+   TOKEN PAIR
+   Returned after login / refresh
 ===================================================== */
 export interface AuthTokens {
   accessToken: string;
@@ -14,24 +15,34 @@ export interface AuthTokens {
 }
 
 /* =====================================================
-   Decoded JWT Payload
-   (Includes standard JWT claims)
+   DECODED TOKEN
+   JWT payload + standard JWT claims
 ===================================================== */
 export interface DecodedToken extends TokenPayload {
-  iat: number; // Issued at
-  exp: number; // Expiration timestamp
+  iat: number; // issued at (unix timestamp)
+  exp: number; // expiration timestamp
 }
 
 /* =====================================================
-   Token Type Enum
-   Used for validation logic and rotation handling
+   TOKEN TYPE
+   Used in token validation logic
 ===================================================== */
 export type TokenType = 'ACCESS' | 'REFRESH';
 
 /* =====================================================
-   Future-Ready Extension (Optional Upgrade)
-   Token Versioning Support
+   VERSIONED TOKEN PAYLOAD
+   Enables forced logout + token rotation
 ===================================================== */
 export interface VersionedTokenPayload extends TokenPayload {
   tokenVersion: number;
+}
+
+/* =====================================================
+   OPTIONAL SESSION METADATA
+   Useful for audit logging / device tracking
+===================================================== */
+export interface TokenSessionMeta {
+  ip?: string;
+  userAgent?: string;
+  deviceId?: string;
 }

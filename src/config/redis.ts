@@ -1,57 +1,102 @@
 import Redis from 'ioredis';
 import { env } from './env';
+import logger from '../core/logger';
 
 /**
- * KAAGAZSEVA - Redis Layer (Upstash Compatible)
+ * KAAGAZSEVA - Redis Layer
+ * Supports:
+ * - OTP storage
+ * - Rate limiting
+ * - BullMQ queues
+ * - Assignment locks
  */
 
 export const redis = new Redis(env.REDIS_URL, {
+
   lazyConnect: true,
 
   maxRetriesPerRequest: null,
+
   enableReadyCheck: false,
 
-  retryStrategy: (times) => {
+  enableOfflineQueue: false,
+
+  connectTimeout: 10000,
+
+  retryStrategy: (times: number) => {
+
+    if (times > 20) {
+      logger.error('Redis retry attempts exceeded');
+      return null; // stop retrying
+    }
+
     const delay = Math.min(times * 200, 5000);
+
     return delay;
   },
 
-  tls: {}
+  tls: env.REDIS_URL.startsWith('rediss://') ? {} : undefined,
+
 });
 
-/**
- * Connect Redis
- */
-export const connectRedis = async () => {
-  try {
-    await redis.connect();
-    console.log('⚡ Redis connected successfully');
-  } catch (error) {
-    console.error('❌ Redis connection failed');
-    console.error(error);
-  }
-};
+///////////////////////////////////////////////////////////
+// REDIS EVENT LOGGING
+///////////////////////////////////////////////////////////
 
-/**
- * Graceful shutdown
- */
-export const disconnectRedis = async () => {
-  try {
-    await redis.quit();
-    console.log('🔌 Redis disconnected gracefully');
-  } catch (error) {
-    console.error(error);
-  }
-};
+redis.on('connect', () => {
+
+  logger.info({
+    event: 'REDIS_CONNECTING'
+  });
+
+});
 
 redis.on('ready', () => {
-  console.log('⚡ Redis ready');
+
+  logger.info({
+    event: 'REDIS_READY'
+  });
+
 });
 
 redis.on('error', (err) => {
-  console.error('❌ Redis error:', err.message);
+
+  logger.error({
+    event: 'REDIS_ERROR',
+    error: err.message
+  });
+
 });
 
 redis.on('reconnecting', () => {
-  console.warn('🔄 Redis reconnecting...');
+
+  logger.warn({
+    event: 'REDIS_RECONNECTING'
+  });
+
 });
+
+///////////////////////////////////////////////////////////
+// GRACEFUL SHUTDOWN
+///////////////////////////////////////////////////////////
+
+const shutdown = async () => {
+
+  try {
+
+    logger.info('Closing Redis connection...');
+
+    await redis.quit();
+
+    logger.info('Redis connection closed');
+
+  } catch (error) {
+
+    logger.error('Redis shutdown failed');
+
+  }
+
+};
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);

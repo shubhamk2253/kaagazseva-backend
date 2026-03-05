@@ -14,13 +14,12 @@ import { RiskEngine } from '../security/risk.engine';
 
 /**
  * KAAGAZSEVA - FINANCIAL HARDENED PAYMENT SERVICE
- * Phase 5C – Idempotency + Risk Engine + Anomaly Detection + System Control
  */
 
 export class PaymentService {
 
   //////////////////////////////////////////////////////
-  // INTERNAL SYSTEM CONTROL HELPER
+  // SYSTEM CONTROL HELPER
   //////////////////////////////////////////////////////
 
   private static async getSystemControl() {
@@ -32,21 +31,13 @@ export class PaymentService {
   }
 
   //////////////////////////////////////////////////////
-  // 1️⃣ CREATE PAYMENT ORDER
+  // CREATE PAYMENT ORDER
   //////////////////////////////////////////////////////
 
   static async createPaymentOrder(
     userId: string,
     applicationId: string
   ) {
-
-    if (!userId || !applicationId) {
-      throw new AppError('Missing required parameters', 400);
-    }
-
-    //////////////////////////////////////////////////////
-    // GLOBAL PAYMENT FREEZE CHECK
-    //////////////////////////////////////////////////////
 
     const systemControl = await this.getSystemControl();
 
@@ -59,6 +50,7 @@ export class PaymentService {
 
     const application = await prisma.application.findUnique({
       where: { id: applicationId },
+      include: { service: true },
     });
 
     if (!application) {
@@ -77,40 +69,21 @@ export class PaymentService {
     }
 
     //////////////////////////////////////////////////////
-    // Validate Service
-    //////////////////////////////////////////////////////
-
-    let service = null;
-
-    if (application.serviceId) {
-      service = await prisma.service.findUnique({
-        where: { id: application.serviceId },
-      });
-    }
-
-    if (!service) {
-      service = await prisma.service.findFirst({
-        where: { name: application.serviceType },
-      });
-    }
-
-    if (!service) {
-      throw new AppError('Service not found', 404);
-    }
-
-    //////////////////////////////////////////////////////
     // Validate Mandatory Documents
     //////////////////////////////////////////////////////
 
     const requiredDocs = await prisma.serviceRequiredDocument.findMany({
-      where: { serviceId: service.id },
+      where: { serviceId: application.serviceId! },
     });
 
-    const uploadedDocs =
-      (application.documents as Record<string, any>) || {};
+    const uploadedDocs = await prisma.applicationDocument.findMany({
+      where: { applicationId },
+    });
+
+    const uploadedNames = uploadedDocs.map((d) => d.name);
 
     for (const doc of requiredDocs) {
-      if (doc.isMandatory && !uploadedDocs[doc.documentName]) {
+      if (doc.isMandatory && !uploadedNames.includes(doc.documentName)) {
         throw new AppError(
           `Missing mandatory document: ${doc.documentName}`,
           400
@@ -125,7 +98,7 @@ export class PaymentService {
     }
 
     //////////////////////////////////////////////////////
-    // Create Transaction (Atomic Placeholder)
+    // Create Transaction
     //////////////////////////////////////////////////////
 
     const transaction = await prisma.transaction.create({
@@ -179,7 +152,7 @@ export class PaymentService {
   }
 
   //////////////////////////////////////////////////////
-  // 2️⃣ VERIFY PAYMENT (STRICT IDEMPOTENT VERSION)
+  // VERIFY PAYMENT
   //////////////////////////////////////////////////////
 
   static async verifyPayment(
@@ -189,10 +162,6 @@ export class PaymentService {
     transactionId: string
   ) {
 
-    //////////////////////////////////////////////////////
-    // GLOBAL PAYMENT FREEZE CHECK
-    //////////////////////////////////////////////////////
-
     const systemControl = await this.getSystemControl();
 
     if (systemControl.paymentsFrozen) {
@@ -200,10 +169,6 @@ export class PaymentService {
         'Payment verification temporarily disabled.',
         503
       );
-    }
-
-    if (!orderId || !paymentId || !signature || !transactionId) {
-      throw new AppError('Missing payment verification parameters', 400);
     }
 
     const existingTransaction = await prisma.transaction.findUnique({
@@ -229,6 +194,7 @@ export class PaymentService {
     );
 
     if (!isValid) {
+
       await prisma.transaction.update({
         where: { id: transactionId },
         data: { status: TransactionStatus.FAILED },
@@ -238,7 +204,7 @@ export class PaymentService {
     }
 
     //////////////////////////////////////////////////////
-    // 🔒 HARDENED ATOMIC TRANSACTION
+    // ATOMIC TRANSACTION
     //////////////////////////////////////////////////////
 
     const result = await prisma.$transaction(async (tx) => {
@@ -256,7 +222,7 @@ export class PaymentService {
 
       if (updateResult.count === 0) {
         throw new AppError(
-          'Transaction already processed or invalid state',
+          'Transaction already processed',
           400
         );
       }
@@ -265,8 +231,11 @@ export class PaymentService {
         where: { id: transactionId },
       });
 
-      const applicationId =
-        (originalTransaction?.metadata as any)?.applicationId;
+      const metadata = originalTransaction?.metadata as {
+        applicationId?: string;
+      };
+
+      const applicationId = metadata?.applicationId;
 
       if (!applicationId) {
         throw new AppError('Application reference missing', 400);
@@ -290,26 +259,8 @@ export class PaymentService {
         Number(application.totalAmount)
       );
 
-      if (application.paymentStatus === TransactionStatus.SUCCESS) {
-        throw new AppError(
-          'Payment already processed at application level',
-          400
-        );
-      }
-
-      const existingEscrow = await tx.escrowHolding.findUnique({
-        where: { applicationId },
-      });
-
-      if (existingEscrow) {
-        throw new AppError(
-          'Escrow already exists for this application',
-          400
-        );
-      }
-
       //////////////////////////////////////////////////////
-      // Update Application
+      // UPDATE APPLICATION
       //////////////////////////////////////////////////////
 
       await tx.application.update({
@@ -322,7 +273,7 @@ export class PaymentService {
       });
 
       //////////////////////////////////////////////////////
-      // Create Escrow
+      // CREATE ESCROW
       //////////////////////////////////////////////////////
 
       const agentAmount =
@@ -334,21 +285,21 @@ export class PaymentService {
           applicationId,
           customerId: application.customerId,
           agentId: application.agentId ?? null,
-          totalAmount: application.totalAmount,
-          platformAmount: application.platformCommission,
+          totalAmount: Number(application.totalAmount),
+          platformAmount: Number(application.platformCommission),
           agentAmount,
           isReleased: false,
         },
       });
 
       //////////////////////////////////////////////////////
-      // Escrow Hold Transaction
+      // ESCROW HOLD TRANSACTION
       //////////////////////////////////////////////////////
 
       await tx.transaction.create({
         data: {
           userId: application.customerId,
-          amount: application.totalAmount,
+          amount: Number(application.totalAmount),
           type: TransactionType.ESCROW_HOLD,
           status: TransactionStatus.SUCCESS,
           referenceId: applicationId,
@@ -358,29 +309,45 @@ export class PaymentService {
       return {
         applicationId,
         escrowId: escrow.id,
+        userId: application.customerId,
+        amount: Number(application.totalAmount),
       };
     });
 
     //////////////////////////////////////////////////////
-    // Post-Transaction Hooks
+    // POST TRANSACTION HOOKS
     //////////////////////////////////////////////////////
 
     try {
       await AssignmentEngine.autoAssign(result.applicationId);
     } catch (err) {
-      logger.error('Auto-assignment failed', err);
+      logger.error({
+        event: 'AUTO_ASSIGNMENT_FAILED',
+        error: err,
+      });
     }
 
-    logger.info(`Payment & Escrow SUCCESS → tx=${transactionId}`);
-
     //////////////////////////////////////////////////////
-    // ANOMALY DETECTION
+    // FRAUD DETECTION
     //////////////////////////////////////////////////////
 
-    await AnomalyEngine.analyzePayment(
-      existingTransaction.userId,
-      Number(existingTransaction.amount)
-    );
+    try {
+      await AnomalyEngine.analyzePayment(
+        result.userId,
+        result.amount
+      );
+    } catch (err) {
+      logger.error({
+        event: 'ANOMALY_ENGINE_FAILED',
+        error: err,
+      });
+    }
+
+    logger.info({
+      event: 'PAYMENT_SUCCESS',
+      transactionId,
+      applicationId: result.applicationId,
+    });
 
     return {
       message: 'Payment verified and escrow created successfully',

@@ -19,6 +19,14 @@ export class ApplicationRepository {
     agent: {
       select: { id: true, name: true, phoneNumber: true },
     },
+    service: {
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+      },
+    },
+    documents: true,
   };
 
   //////////////////////////////////////////////////////
@@ -51,7 +59,7 @@ export class ApplicationRepository {
 
     const {
       status,
-      serviceType,
+      serviceId,
       customerId,
       agentId,
       page = 1,
@@ -64,14 +72,7 @@ export class ApplicationRepository {
     const where: Prisma.ApplicationWhereInput = {};
 
     if (status) where.status = status;
-
-    if (serviceType) {
-      where.serviceType = {
-        equals: serviceType,
-        mode: 'insensitive',
-      };
-    }
-
+    if (serviceId) where.serviceId = serviceId;
     if (customerId) where.customerId = customerId;
     if (agentId) where.agentId = agentId;
 

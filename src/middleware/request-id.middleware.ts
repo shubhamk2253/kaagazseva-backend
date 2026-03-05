@@ -12,7 +12,6 @@ export const requestIdMiddleware = (
   res: Response,
   next: NextFunction
 ) => {
-  // 1️⃣ Validate or generate request ID
   const incomingId = req.headers['x-request-id'];
 
   const requestId =
@@ -22,19 +21,21 @@ export const requestIdMiddleware = (
 
   req.requestId = requestId;
 
-  // 2️⃣ Attach to response header
   res.setHeader('x-request-id', requestId);
 
-  // 3️⃣ Capture start time
   const startTime = Date.now();
 
-  // 4️⃣ Log when response finishes
   res.on('finish', () => {
     const duration = Date.now() - startTime;
 
-    logger.info(
-      `HTTP ${req.method} ${req.originalUrl} → ${res.statusCode} | ${duration}ms | requestId=${requestId}`
-    );
+    logger.info({
+      message: 'HTTP Request',
+      method: req.method,
+      path: req.originalUrl,
+      statusCode: res.statusCode,
+      durationMs: duration,
+      requestId,
+    });
   });
 
   next();

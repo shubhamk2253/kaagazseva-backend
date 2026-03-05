@@ -1,44 +1,78 @@
-import { UserRole } from '../../core/constants';
+import { UserRole } from '@prisma/client';
 import { PaginatedResponse } from '../../core/types';
 
 /**
  * KAAGAZSEVA - User Module Types
- * Clean DTO layer between DB and Controller.
+ * DTO layer between database entities and API responses.
  */
 
-/**
- * Public User Profile DTO
- * (Mapped from Prisma User + Wallet)
- */
+/* =====================================================
+   PUBLIC USER PROFILE DTO
+   (Returned to API consumers)
+===================================================== */
+
 export interface UserProfile {
-  id: string;
-  phoneNumber: string;
-  name: string | null;
-  role: UserRole;
-  isActive: boolean;
-  walletBalance: number; // Derived from user.wallet.balance
-  createdAt: Date;
+  readonly id: string;
+  readonly phoneNumber: string;
+  readonly name: string | null;
+  readonly role: UserRole;
+  readonly isActive: boolean;
+
+  /**
+   * Derived field (wallet.balance)
+   */
+  readonly walletBalance: number;
+
+  readonly createdAt: Date;
 }
 
-/**
- * Input for updating profile
- */
+/* =====================================================
+   PROFILE UPDATE INPUT
+===================================================== */
+
 export interface UpdateProfileInput {
   name?: string;
 }
 
-/**
- * Admin Query Filters
- */
+/* =====================================================
+   ADMIN USER SEARCH FILTERS
+===================================================== */
+
 export interface UserQueryFilters {
+
+  /**
+   * Filter by role
+   */
   role?: UserRole;
+
+  /**
+   * Filter active / suspended accounts
+   */
   isActive?: boolean;
+
+  /**
+   * Search by name or phone number
+   */
   search?: string;
+
+  /**
+   * Pagination
+   */
   page?: number;
   limit?: number;
 }
 
-/**
- * Standard Paginated Response for Admin User List
- */
-export type PaginatedUserResponse = PaginatedResponse<UserProfile>;
+/* =====================================================
+   ADMIN STATUS UPDATE INPUT
+===================================================== */
+
+export interface UpdateUserStatusInput {
+  isActive: boolean;
+}
+
+/* =====================================================
+   PAGINATED USER RESPONSE
+===================================================== */
+
+export type PaginatedUserResponse =
+  PaginatedResponse<UserProfile>;

@@ -8,7 +8,7 @@ import {
 import { CreateTicketInput } from './ticket.types';
 
 /**
- * KAAGAZSEVA - Ticket Repository (Schema Aligned)
+ * KAAGAZSEVA - Ticket Repository
  */
 export class TicketRepository {
 
@@ -20,9 +20,10 @@ export class TicketRepository {
     userId: string,
     data: CreateTicketInput
   ) {
+
     return prisma.ticket.create({
       data: {
-        title: data.subject, // map subject → title
+        title: data.subject,
         description: data.description,
         category: data.category as TicketCategory,
         priority: data.priority || TicketPriority.MEDIUM,
@@ -30,6 +31,7 @@ export class TicketRepository {
         createdById: userId,
       },
     });
+
   }
 
   //////////////////////////////////////////////////////
@@ -37,6 +39,7 @@ export class TicketRepository {
   //////////////////////////////////////////////////////
 
   static async findByIdWithResponses(id: string) {
+
     return prisma.ticket.findUnique({
       where: { id },
       include: {
@@ -68,6 +71,7 @@ export class TicketRepository {
         },
       },
     });
+
   }
 
   //////////////////////////////////////////////////////
@@ -79,27 +83,19 @@ export class TicketRepository {
     senderId: string,
     message: string
   ) {
-    return prisma.$transaction(async (tx) => {
 
-      const response = await tx.ticketResponse.create({
-        data: {
-          ticketId,
-          userId: senderId,
-          message,
-        },
-      });
-
-      await tx.ticket.update({
-        where: { id: ticketId },
-        data: { updatedAt: new Date() },
-      });
-
-      return response;
+    return prisma.ticketResponse.create({
+      data: {
+        ticketId,
+        userId: senderId,
+        message,
+      },
     });
+
   }
 
   //////////////////////////////////////////////////////
-  // UPDATE STATUS / ASSIGN
+  // UPDATE TICKET
   //////////////////////////////////////////////////////
 
   static async updateTicket(
@@ -110,11 +106,12 @@ export class TicketRepository {
       assignedTo?: string;
     }
   ) {
+
     return prisma.ticket.update({
       where: { id: ticketId },
       data: {
-        status: data.status,
-        priority: data.priority,
+        ...(data.status && { status: data.status }),
+        ...(data.priority && { priority: data.priority }),
         ...(data.assignedTo && {
           assignedTo: {
             connect: { id: data.assignedTo },
@@ -122,10 +119,11 @@ export class TicketRepository {
         }),
       },
     });
+
   }
 
   //////////////////////////////////////////////////////
-  // STATE_ADMIN LIST WITH FILTERS
+  // LIST TICKETS
   //////////////////////////////////////////////////////
 
   static async listAll(
@@ -133,24 +131,43 @@ export class TicketRepository {
     skip: number,
     take: number
   ) {
+
     const [tickets, total] = await prisma.$transaction([
+
       prisma.ticket.findMany({
         where,
-        orderBy: { updatedAt: 'desc' },
+        orderBy: [
+          { updatedAt: 'desc' },
+          { createdAt: 'desc' },
+        ],
         skip,
         take,
         include: {
           createdBy: {
-            select: { name: true, phoneNumber: true },
+            select: {
+              name: true,
+              phoneNumber: true,
+            },
           },
           assignedTo: {
-            select: { name: true },
+            select: {
+              name: true,
+            },
           },
         },
       }),
-      prisma.ticket.count({ where }),
+
+      prisma.ticket.count({
+        where,
+      }),
+
     ]);
 
-    return { tickets, total };
+    return {
+      tickets,
+      total,
+    };
+
   }
+
 }

@@ -6,17 +6,14 @@ import {
   UserRole,
   ServiceMode,
 } from '@prisma/client';
-import {
-  ApplicationFilters,
-  CreateApplicationInput,
-} from './application.types';
+import { ApplicationFilters } from './application.types';
 import { prisma } from '../../config/database';
 import logger from '../../core/logger';
 
 export class ApplicationService {
 
   //////////////////////////////////////////////////////
-  // 1️⃣ CREATE DRAFT (PINCODE LOCKED VERSION)
+  // 1️⃣ CREATE DRAFT
   //////////////////////////////////////////////////////
 
   static async createDraft(
@@ -33,7 +30,7 @@ export class ApplicationService {
   ) {
 
     //////////////////////////////////////////////////////
-    // 1️⃣ Validate Service
+    // Validate Service
     //////////////////////////////////////////////////////
 
     const service = await prisma.service.findUnique({
@@ -46,16 +43,12 @@ export class ApplicationService {
     }
 
     //////////////////////////////////////////////////////
-    // 2️⃣ Validate Pincode Format
+    // Validate Pincode
     //////////////////////////////////////////////////////
 
     if (!/^[0-9]{6}$/.test(data.pincode)) {
       throw new AppError('Invalid pincode format', 400);
     }
-
-    //////////////////////////////////////////////////////
-    // 3️⃣ Fetch Pincode From DB
-    //////////////////////////////////////////////////////
 
     const pincodeRecord = await prisma.pincode.findUnique({
       where: { code: data.pincode },
@@ -67,7 +60,7 @@ export class ApplicationService {
     }
 
     //////////////////////////////////////////////////////
-    // 4️⃣ Cross-State Validation
+    // Cross-state validation
     //////////////////////////////////////////////////////
 
     if (pincodeRecord.stateId !== service.stateId) {
@@ -85,61 +78,81 @@ export class ApplicationService {
     }
 
     //////////////////////////////////////////////////////
-    // 5️⃣ Pricing Engine (DB-driven govtFee)
+    // Fetch Pricing Rule
+    //////////////////////////////////////////////////////
+
+    const pricingRule = await prisma.pricingRule.findFirst({
+      where: {
+        serviceId: service.id,
+        mode: data.mode,
+        isActive: true,
+      },
+    });
+
+    if (!pricingRule) {
+      throw new AppError('Pricing rule not configured for this service', 500);
+    }
+
+    const govtFee = Number(pricingRule.minGovtFee);
+
+    //////////////////////////////////////////////////////
+    // Pricing Engine
     //////////////////////////////////////////////////////
 
     let pricing;
 
     try {
+
       pricing = PricingEngine.calculate({
-        govtFee: service.govtFee,
+        govtFee,
         mode: data.mode,
         customerLat: data.customerLat,
         customerLng: data.customerLng,
       });
+
     } catch (error: any) {
       throw new AppError(error.message, 400);
     }
 
     //////////////////////////////////////////////////////
-    // 6️⃣ Create Secure Draft
+    // Create Draft
     //////////////////////////////////////////////////////
 
     const draft = await ApplicationRepository.create({
-
-      customer: { connect: { id: customerId } },
-
+      
+      customer: {
+        connect: { id: customerId }
+      },
+      service: {
+        connect: { id: service.id }
+      },
+      
+      serviceType: service.name,
+      
       state: service.state.name,
       district: pincodeRecord.district,
-      serviceType: service.name,
       mode: data.mode,
-
-      documents: {},
-
       status: ApplicationStatus.DRAFT,
-
+      
       govtFee: pricing.govtFee,
       serviceFee: pricing.serviceFee,
       platformCommission: pricing.platformCommission,
       agentCommission: pricing.agentCommission,
       deliveryFee: pricing.deliveryFee,
       totalAmount: pricing.totalAmount,
-      distanceKm: pricing.distanceKm ?? null,
-
       pricingSnapshot: {
         ...pricing,
         pincode: data.pincode,
         district: pincodeRecord.district,
         lockedAt: new Date().toISOString(),
       },
-
       deliveryAddress: data.deliveryAddress,
       customerLat: data.customerLat,
       customerLng: data.customerLng,
     });
 
     logger.info(
-      `Secure Draft ${draft.id} created | Customer=${customerId}`
+      `Draft ${draft.id} created | Customer=${customerId}`
     );
 
     return {
@@ -153,13 +166,13 @@ export class ApplicationService {
   }
 
   //////////////////////////////////////////////////////
-  // 2️⃣ ATTACH DOCUMENTS (🔒 LOCKED AFTER PAYMENT)
+  // 2️⃣ ATTACH DOCUMENTS
   //////////////////////////////////////////////////////
 
   static async attachDocuments(
     applicationId: string,
     customerId: string,
-    documents: Record<string, any>
+    documents: { name: string; fileUrl: string }[]
   ) {
 
     const app = await ApplicationRepository.findById(applicationId);
@@ -172,10 +185,6 @@ export class ApplicationService {
       throw new AppError('Access denied', 403);
     }
 
-    //////////////////////////////////////////////////////
-    // 🔒 HARD LOCK: Only DRAFT allowed
-    //////////////////////////////////////////////////////
-
     if (app.status !== ApplicationStatus.DRAFT) {
       throw new AppError(
         'Documents cannot be modified after payment initiation',
@@ -183,25 +192,19 @@ export class ApplicationService {
       );
     }
 
-    //////////////////////////////////////////////////////
-    // 🔐 Merge documents safely (prevent overwrite attack)
-    //////////////////////////////////////////////////////
-
-    const existingDocs =
-      (app.documents as Record<string, any>) || {};
-
-    const mergedDocuments = {
-      ...existingDocs,
-      ...documents,
-    };
-
-    return ApplicationRepository.update(applicationId, {
-      documents: mergedDocuments,
+    await prisma.applicationDocument.createMany({
+      data: documents.map(doc => ({
+        applicationId,
+        name: doc.name,
+        fileUrl: doc.fileUrl,
+      })),
     });
+
+    return ApplicationRepository.findById(applicationId);
   }
 
   //////////////////////////////////////////////////////
-  // 3️⃣ LIST
+  // 3️⃣ LIST APPLICATIONS
   //////////////////////////////////////////////////////
 
   static async listApplications(filters: ApplicationFilters) {
@@ -209,7 +212,7 @@ export class ApplicationService {
   }
 
   //////////////////////////////////////////////////////
-  // 4️⃣ SECURE DETAIL VIEW
+  // 4️⃣ GET APPLICATION DETAILS
   //////////////////////////////////////////////////////
 
   static async getApplicationDetails(
@@ -219,13 +222,18 @@ export class ApplicationService {
   ) {
 
     const app = await ApplicationRepository.findById(applicationId);
-    if (!app) throw new AppError('Application not found', 404);
+
+    if (!app) {
+      throw new AppError('Application not found', 404);
+    }
 
     const isOwner = app.customerId === requestorId;
     const isAssignedAgent = app.agentId === requestorId;
-    const isAdmin =requestorRole === UserRole.STATE_ADMIN ||
-    requestorRole === UserRole.DISTRICT_ADMIN ||
-    requestorRole === UserRole.FOUNDER;
+
+    const isAdmin =
+      requestorRole === UserRole.STATE_ADMIN ||
+      requestorRole === UserRole.DISTRICT_ADMIN ||
+      requestorRole === UserRole.FOUNDER;
 
     if (!isOwner && !isAssignedAgent && !isAdmin) {
       throw new AppError('Access denied to this application', 403);
@@ -235,7 +243,7 @@ export class ApplicationService {
   }
 
   //////////////////////////////////////////////////////
-  // 5️⃣ STATUS UPDATE
+  // 5️⃣ UPDATE STATUS
   //////////////////////////////////////////////////////
 
   static async updateStatus(
@@ -245,15 +253,15 @@ export class ApplicationService {
   ) {
 
     const app = await ApplicationRepository.findById(id);
-    if (!app) throw new AppError('Application not found', 404);
+
+    if (!app) {
+      throw new AppError('Application not found', 404);
+    }
 
     const updateData: any = { status };
 
     if (status === ApplicationStatus.COMPLETED) {
       updateData.completedAt = new Date();
-      updateData.autoReleaseAt = new Date(
-        Date.now() + 24 * 60 * 60 * 1000
-      );
     }
 
     const updated = await ApplicationRepository.update(id, updateData);
@@ -264,4 +272,5 @@ export class ApplicationService {
 
     return updated;
   }
+
 }

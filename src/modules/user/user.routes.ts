@@ -5,25 +5,29 @@ import { validate } from '../../middleware/validate.middleware';
 import { requireAuth } from '../../middleware/auth.middleware';
 import { authorizeRoles } from '../../middleware/role.middleware';
 import { apiLimiter } from '../../middleware/rateLimit.middleware';
-import { UserRole } from '../../core/constants';
+import { UserRole } from '@prisma/client';
 
 /**
  * KAAGAZSEVA - User Routes
  * Secure endpoints for profile management and administrative oversight.
  */
+
 const router = Router();
 
-/* ---------------------------------------
-   AUTHENTICATED USER ROUTES
---------------------------------------- */
+///////////////////////////////////////////////////////////
+// AUTHENTICATED USER ROUTES
+///////////////////////////////////////////////////////////
 
-// All routes below require valid JWT
+// All routes require valid JWT
 router.use(requireAuth);
 
 /**
  * GET /api/v1/users/me
  */
-router.get('/me', UserController.getMe);
+router.get(
+  '/me',
+  UserController.getMe
+);
 
 /**
  * PATCH /api/v1/users/me
@@ -34,14 +38,17 @@ router.patch(
   UserController.updateMe
 );
 
-/* ---------------------------------------
-   STATE_ADMIN ONLY ROUTES
---------------------------------------- */
+///////////////////////////////////////////////////////////
+// ADMIN ROUTES (STATE ADMIN)
+///////////////////////////////////////////////////////////
 
-router.use(authorizeRoles(UserRole.STATE_ADMIN));
+router.use(
+  authorizeRoles(UserRole.STATE_ADMIN)
+);
 
 /**
  * GET /api/v1/users/admin/all
+ * Admin user search
  */
 router.get(
   '/admin/all',
@@ -52,6 +59,7 @@ router.get(
 
 /**
  * PATCH /api/v1/users/admin/:id/status
+ * Activate / suspend users
  */
 router.patch(
   '/admin/:id/status',

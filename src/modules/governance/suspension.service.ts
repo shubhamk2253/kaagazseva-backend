@@ -1,6 +1,6 @@
 import { prisma } from '../../config/database';
 import { AppError } from '../../core/AppError';
-import { UserRole, SuspensionStatus } from '@prisma/client';
+import { UserRole, SuspensionStatus, AuditAction } from '@prisma/client';
 import logger from '../../core/logger';
 
 export class SuspensionService {
@@ -14,7 +14,7 @@ export class SuspensionService {
     reason: string,
     initiatedById: string,
     performerRole: UserRole,
-    evidence?: any
+    evidence?: string | string[]
   ) {
 
     if (!reason || reason.length < 5) {
@@ -43,13 +43,19 @@ export class SuspensionService {
     }
 
     const level =
-      performerRole === UserRole.DISTRICT_ADMIN ? 1 :
-      performerRole === UserRole.STATE_ADMIN ? 2 :
-      3;
+      performerRole === UserRole.DISTRICT_ADMIN
+        ? 1
+        : performerRole === UserRole.STATE_ADMIN
+        ? 2
+        : 3;
 
     const deadline = new Date(Date.now() + 48 * 60 * 60 * 1000);
 
     await prisma.$transaction(async (tx) => {
+
+      //////////////////////////////////////////////////////
+      // Create Suspension Case
+      //////////////////////////////////////////////////////
 
       await tx.suspensionCase.create({
         data: {
@@ -62,6 +68,10 @@ export class SuspensionService {
         },
       });
 
+      //////////////////////////////////////////////////////
+      // Update User Suspension State
+      //////////////////////////////////////////////////////
+
       await tx.user.update({
         where: { id: targetUserId },
         data: {
@@ -72,17 +82,25 @@ export class SuspensionService {
         },
       });
 
+      //////////////////////////////////////////////////////
+      // Freeze Wallet
+      //////////////////////////////////////////////////////
+
       if (target.wallet) {
-        await tx.wallet.update({
+        await tx.wallet.updateMany({
           where: { userId: targetUserId },
           data: { isFrozen: true },
         });
       }
 
+      //////////////////////////////////////////////////////
+      // Audit Log
+      //////////////////////////////////////////////////////
+
       await tx.auditLog.create({
         data: {
           userId: initiatedById,
-          action: 'CREATE',
+          action: AuditAction.CREATE,
           resourceType: 'SUSPENSION_INITIATED',
           resourceId: targetUserId,
           newData: { reason, level },
@@ -92,9 +110,16 @@ export class SuspensionService {
 
     });
 
-    logger.warn(`⚠ Suspension initiated → ${targetUserId}`);
+    logger.warn({
+      event: 'SUSPENSION_INITIATED',
+      targetUserId,
+      initiatedById,
+      role: performerRole,
+    });
 
-    return { message: 'Suspension under review & wallet frozen' };
+    return {
+      message: 'Suspension under review & wallet frozen',
+    };
   }
 
   //////////////////////////////////////////////////////
@@ -116,11 +141,13 @@ export class SuspensionService {
       throw new AppError('Case not found', 404);
     }
 
-    if (
-      suspensionCase.status !== SuspensionStatus.UNDER_REVIEW &&
-      suspensionCase.status !== SuspensionStatus.ESCALATED &&
-      suspensionCase.status !== SuspensionStatus.AUTO_ESCALATED
-    ) {
+    const allowedStatuses: SuspensionStatus[] = [
+      SuspensionStatus.UNDER_REVIEW,
+      SuspensionStatus.ESCALATED,
+      SuspensionStatus.AUTO_ESCALATED,
+    ];
+
+    if (!allowedStatuses.includes(suspensionCase.status)) {
       throw new AppError('Case not eligible for review', 400);
     }
 
@@ -140,17 +167,27 @@ export class SuspensionService {
       suspensionCase.level === 1 &&
       reviewer.role !== UserRole.STATE_ADMIN
     ) {
-      throw new AppError('Only State Admin can review level 1 cases', 403);
+      throw new AppError(
+        'Only State Admin can review level 1 cases',
+        403
+      );
     }
 
     if (
       suspensionCase.level >= 2 &&
       reviewer.role !== UserRole.FOUNDER
     ) {
-      throw new AppError('Only Founder can review level 2+ cases', 403);
+      throw new AppError(
+        'Only Founder can review level 2+ cases',
+        403
+      );
     }
 
     await prisma.$transaction(async (tx) => {
+
+      //////////////////////////////////////////////////////
+      // CONFIRM
+      //////////////////////////////////////////////////////
 
       if (decision === 'CONFIRM') {
 
@@ -170,7 +207,13 @@ export class SuspensionService {
           },
         });
 
-      } else {
+      }
+
+      //////////////////////////////////////////////////////
+      // REJECT
+      //////////////////////////////////////////////////////
+
+      else {
 
         await tx.suspensionCase.update({
           where: { id: caseId },
@@ -190,17 +233,21 @@ export class SuspensionService {
           },
         });
 
-        await tx.wallet.update({
+        await tx.wallet.updateMany({
           where: { userId: suspensionCase.userId },
           data: { isFrozen: false },
         });
 
       }
 
+      //////////////////////////////////////////////////////
+      // Audit Log
+      //////////////////////////////////////////////////////
+
       await tx.auditLog.create({
         data: {
           userId: reviewerId,
-          action: 'UPDATE',
+          action: AuditAction.UPDATE,
           resourceType: 'SUSPENSION_REVIEW',
           resourceId: suspensionCase.userId,
           newData: { decision },
@@ -210,9 +257,16 @@ export class SuspensionService {
 
     });
 
-    logger.info(`Suspension ${decision} → Case ${caseId}`);
+    logger.info({
+      event: 'SUSPENSION_REVIEW',
+      caseId,
+      reviewerId,
+      decision,
+    });
 
-    return { message: `Suspension ${decision}` };
+    return {
+      message: `Suspension ${decision}`,
+    };
   }
 
   //////////////////////////////////////////////////////
@@ -242,7 +296,10 @@ export class SuspensionService {
     }
 
     if (suspensionCase.status !== SuspensionStatus.CONFIRMED) {
-      throw new AppError('Only confirmed suspensions can be appealed', 400);
+      throw new AppError(
+        'Only confirmed suspensions can be appealed',
+        400
+      );
     }
 
     if (suspensionCase.appealAt) {
@@ -258,8 +315,15 @@ export class SuspensionService {
       },
     });
 
-    logger.info(`Appeal submitted → Case ${caseId}`);
+    logger.info({
+      event: 'SUSPENSION_APPEAL',
+      caseId,
+      agentId,
+    });
 
-    return { message: 'Appeal submitted successfully' };
+    return {
+      message: 'Appeal submitted successfully',
+    };
   }
+
 }

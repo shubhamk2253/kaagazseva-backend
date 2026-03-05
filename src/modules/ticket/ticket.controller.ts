@@ -3,6 +3,7 @@ import { TicketService } from './ticket.service';
 import { asyncHandler } from '../../core/asyncHandler';
 import { ApiResponse } from '../../core/ApiResponse';
 import { RequestWithUser } from '../../core/types';
+import { AppError } from '../../core/AppError';
 
 /**
  * KAAGAZSEVA - Ticket Controller
@@ -14,9 +15,13 @@ export class TicketController {
   // CREATE TICKET
   //////////////////////////////////////////////////////
   static create = asyncHandler(async (req: RequestWithUser, res: Response) => {
+
     const userId = req.user!.userId;
 
-    const ticket = await TicketService.createTicket(userId, req.body);
+    const ticket = await TicketService.createTicket(
+      userId,
+      req.body
+    );
 
     return ApiResponse.success(
       res,
@@ -30,6 +35,7 @@ export class TicketController {
   // LIST TICKETS
   //////////////////////////////////////////////////////
   static list = asyncHandler(async (req: RequestWithUser, res: Response) => {
+
     const { userId, role } = req.user!;
 
     const result = await TicketService.listTickets(
@@ -46,11 +52,16 @@ export class TicketController {
   });
 
   //////////////////////////////////////////////////////
-  // GET THREAD
+  // GET TICKET THREAD
   //////////////////////////////////////////////////////
   static getThread = asyncHandler(async (req: RequestWithUser, res: Response) => {
+
     const { id } = req.params;
     const { userId, role } = req.user!;
+
+    if (!id) {
+      throw new AppError('Ticket ID required', 400);
+    }
 
     const thread = await TicketService.getTicketDetails(
       id,
@@ -69,15 +80,24 @@ export class TicketController {
   // ADD MESSAGE
   //////////////////////////////////////////////////////
   static reply = asyncHandler(async (req: RequestWithUser, res: Response) => {
+
     const { id } = req.params;
     const { userId, role } = req.user!;
-    const { message } = req.body; // 🔥 attachments removed
+    const { message } = req.body;
+
+    if (!id) {
+      throw new AppError('Ticket ID required', 400);
+    }
+
+    if (!message || message.trim().length < 2) {
+      throw new AppError('Message cannot be empty', 400);
+    }
 
     const response = await TicketService.addMessage(
       id,
       userId,
       role,
-      message
+      message.trim()
     );
 
     return ApiResponse.success(
