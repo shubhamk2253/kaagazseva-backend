@@ -8,8 +8,8 @@ import { EscrowAutoReleaseScheduler }
 from './modules/escrow/escrow.autoRelease.scheduler';
 import logger from './core/logger';
 
-const PORT = process.env.PORT || 5000;
-
+const PORT = process.env.PORT ||6379;
+app.listen(PORT)
 /**
  * KAAGAZSEVA - Server Bootstrapper
  * Initializes infrastructure and starts the HTTP server.
