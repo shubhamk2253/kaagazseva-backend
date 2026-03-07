@@ -16,7 +16,7 @@ const router = Router();
  */
 router.post(
   '/request-otp',
-  authLimiter, // 🔐 Protect against OTP spam
+ // 🔐 Protect against OTP spam
   validate(authSchema.requestOtp),
   AuthController.requestOtp
 );
