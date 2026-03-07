@@ -11,10 +11,19 @@ export class OtpProvider {
 
     try {
 
-      const url =
-        `https://control.msg91.com/api/v5/otp?authkey=${process.env.MSG91_AUTH_KEY}&mobile=91${phoneNumber}&otp=${otp}&otp_length=6`;
-
-      const response = await axios.get(url);
+      const response = await axios.post(
+        'https://control.msg91.com/api/v5/otp',
+        {
+          mobile: `91${phoneNumber}`,
+          otp: otp,
+        },
+        {
+          headers: {
+            authkey: process.env.MSG91_AUTH_KEY,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
 
       logger.info({
         event: 'OTP_SENT',
