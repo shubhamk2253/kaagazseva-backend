@@ -36,7 +36,10 @@ app.use(helmet());
 
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+    origin: [
+      'http://localhost:5173',
+      'https://kaagazseva-frontend.onrender.com'
+    ],
     credentials: true,
   })
 );

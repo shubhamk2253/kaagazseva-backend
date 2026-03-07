@@ -19,6 +19,7 @@ const router = Router();
 
 router.post(
   '/webhook',
+  apiLimiter,
   PaymentController.webhookHandler
 );
 
