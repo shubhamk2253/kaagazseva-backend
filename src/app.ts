@@ -38,7 +38,8 @@ app.use(
   cors({
     origin: [
       'http://localhost:5173',
-      'https://kaagazseva-frontend.onrender.com'
+      'https://kaagazseva.in',
+      'https://www.kaagazseva.in'
     ],
     credentials: true,
   })
