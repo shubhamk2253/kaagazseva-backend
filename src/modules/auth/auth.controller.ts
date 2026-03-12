@@ -8,52 +8,30 @@ import { RequestWithUser } from '../../core/types';
 
 /**
  * KAAGAZSEVA - Auth Controller
+ * Firebase Login Version
  */
 
 export class AuthController {
 
-  /**
-   * POST /api/v1/auth/send-otp
-   */
-  static sendOtp = asyncHandler(async (req: RequestWithUser, res: Response) => {
+  //////////////////////////////////////////////////////
+  // FIREBASE LOGIN
+  // POST /api/v1/auth/firebase-login
+  //////////////////////////////////////////////////////
+
+  static firebaseLogin = asyncHandler(async (req: RequestWithUser, res: Response) => {
 
     const { phoneNumber } = req.body;
 
-    const result = await AuthService.requestOtp(phoneNumber);
-
-    return ApiResponse.success(
-      res,
-      result.message,
-      { phoneNumber, requestId: req.requestId }
-    );
-  });
-
-  /**
-   * Alias for backward compatibility
-   * POST /api/v1/auth/request-otp
-   */
-  static requestOtp = asyncHandler(async (req: RequestWithUser, res: Response) => {
-
-    const { phoneNumber } = req.body;
-
-    const result = await AuthService.requestOtp(phoneNumber);
-
-    return ApiResponse.success(
-      res,
-      result.message,
-      { phoneNumber, requestId: req.requestId }
-    );
-  });
-
-  /**
-   * POST /api/v1/auth/verify-otp
-   */
-  static verifyOtp = asyncHandler(async (req: RequestWithUser, res: Response) => {
-
-    const { phoneNumber, otp } = req.body;
+    if (!phoneNumber) {
+      throw new AppError('Phone number required', 400);
+    }
 
     const { user, tokens } =
-      await AuthService.verifyOtp(phoneNumber, otp);
+      await AuthService.firebaseLogin(phoneNumber);
+
+    //////////////////////////////////////////////////////
+    // SET REFRESH COOKIE
+    //////////////////////////////////////////////////////
 
     res.cookie('refreshToken', tokens.refreshToken, {
       httpOnly: true,
@@ -61,6 +39,10 @@ export class AuthController {
       sameSite: 'strict',
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
+
+    //////////////////////////////////////////////////////
+    // RESPONSE
+    //////////////////////////////////////////////////////
 
     return ApiResponse.success(
       res,
@@ -71,11 +53,13 @@ export class AuthController {
         requestId: req.requestId,
       }
     );
+
   });
 
-  /**
-   * POST /api/v1/auth/refresh
-   */
+  //////////////////////////////////////////////////////
+  // REFRESH TOKEN
+  //////////////////////////////////////////////////////
+
   static refreshToken = asyncHandler(async (req: RequestWithUser, res: Response) => {
 
     const token =
@@ -97,11 +81,13 @@ export class AuthController {
         requestId: req.requestId,
       }
     );
+
   });
 
-  /**
-   * POST /api/v1/auth/logout
-   */
+  //////////////////////////////////////////////////////
+  // LOGOUT
+  //////////////////////////////////////////////////////
+
   static logout = asyncHandler(async (req: RequestWithUser, res: Response) => {
 
     res.clearCookie('refreshToken', {
@@ -115,5 +101,7 @@ export class AuthController {
       'Logged out successfully',
       { requestId: req.requestId }
     );
+
   });
+
 }

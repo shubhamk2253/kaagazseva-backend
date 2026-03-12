@@ -2,42 +2,41 @@ import { Router } from 'express';
 import { AuthController } from './auth.controller';
 import { authSchema } from './auth.schema';
 import { validate } from '../../middleware/validate.middleware';
-import { authLimiter, apiLimiter } from '../../middleware/rateLimit.middleware';
+import { apiLimiter } from '../../middleware/rateLimit.middleware';
 
 /**
  * KAAGAZSEVA - Auth Routes
+ * Firebase Authentication
  */
+
 const router = Router();
 
-/**
- * @route   POST /api/v1/auth/request-otp
- * @desc    Request a 6-digit OTP
- * @access  Public (Strict Rate Limited)
- */
-router.post(
-  '/request-otp',
- // 🔐 Protect against OTP spam
-  validate(authSchema.requestOtp),
-  AuthController.requestOtp
-);
+//////////////////////////////////////////////////////
+// FIREBASE LOGIN
+//////////////////////////////////////////////////////
 
 /**
- * @route   POST /api/v1/auth/verify-otp
- * @desc    Verify OTP and issue tokens
+ * @route   POST /api/v1/auth/firebase-login
+ * @desc    Login using Firebase verified phone
  * @access  Public
  */
+
 router.post(
-  '/verify-otp',
-  apiLimiter, // Standard API limit
-  validate(authSchema.verifyOtp),
-  AuthController.verifyOtp
+  '/firebase-login',
+  apiLimiter,
+  validate(authSchema.firebaseLogin),
+  AuthController.firebaseLogin
 );
+
+//////////////////////////////////////////////////////
+// REFRESH TOKEN
+//////////////////////////////////////////////////////
 
 /**
  * @route   POST /api/v1/auth/refresh
  * @desc    Refresh Access Token
- * @access  Public
  */
+
 router.post(
   '/refresh',
   apiLimiter,
@@ -45,10 +44,14 @@ router.post(
   AuthController.refreshToken
 );
 
+//////////////////////////////////////////////////////
+// LOGOUT
+//////////////////////////////////////////////////////
+
 /**
  * @route   POST /api/v1/auth/logout
- * @desc    Logout user
  */
+
 router.post(
   '/logout',
   apiLimiter,

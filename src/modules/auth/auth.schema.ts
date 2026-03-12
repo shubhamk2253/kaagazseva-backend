@@ -2,14 +2,17 @@ import { z } from 'zod';
 
 /**
  * KAAGAZSEVA - Auth Validation Schemas
- * Production-ready validation for Indian phone numbers and OTP flows.
+ * Firebase Authentication Version
  */
 
 // Indian 10-digit mobile number (without +91)
 const phoneRegex = /^[6-9]\d{9}$/;
 
-// 1️⃣ Request OTP Schema
-const requestOtp = z.object({
+//////////////////////////////////////////////////////
+// FIREBASE LOGIN
+//////////////////////////////////////////////////////
+
+const firebaseLogin = z.object({
   body: z.object({
     phoneNumber: z
       .string({ required_error: 'Phone number is required' })
@@ -21,21 +24,10 @@ const requestOtp = z.object({
   }).strict(),
 });
 
-// 2️⃣ Verify OTP Schema
-const verifyOtp = z.object({
-  body: z.object({
-    phoneNumber: z
-      .string({ required_error: 'Phone number is required' })
-      .trim()
-      .regex(phoneRegex, 'Invalid Indian phone number'),
-    otp: z
-      .string({ required_error: 'OTP is required' })
-      .trim()
-      .regex(/^\d{6}$/, 'OTP must be exactly 6 digits'),
-  }).strict(),
-});
+//////////////////////////////////////////////////////
+// REFRESH TOKEN
+//////////////////////////////////////////////////////
 
-// 3️⃣ Refresh Token Schema
 const refreshToken = z.object({
   body: z.object({
     refreshToken: z
@@ -44,7 +36,10 @@ const refreshToken = z.object({
   }).strict(),
 });
 
-// 4️⃣ Update Profile Schema (Post-login)
+//////////////////////////////////////////////////////
+// UPDATE PROFILE
+//////////////////////////////////////////////////////
+
 const updateProfile = z.object({
   body: z.object({
     name: z
@@ -63,8 +58,7 @@ const updateProfile = z.object({
 });
 
 export const authSchema = {
-  requestOtp,
-  verifyOtp,
+  firebaseLogin,
   refreshToken,
   updateProfile,
 };

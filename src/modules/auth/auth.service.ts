@@ -1,52 +1,32 @@
 import { AuthRepository } from './auth.repository';
 import { JwtService } from '../../infrastructure/jwt/jwt.service';
-import { OtpService } from '../../services/otp.service';
-import { OtpProvider } from '../../infrastructure/otp/otp.provider';
 import { AppError } from '../../core/AppError';
 import { UserRole } from '@prisma/client';
 import logger from '../../core/logger';
 
 /**
  * KAAGAZSEVA - Auth Service
+ * Firebase Authentication Version
  */
 
 export class AuthService {
 
-  /* =====================================================
-     STEP 1 — Request OTP
-  ===================================================== */
-  static async requestOtp(phoneNumber: string) {
+  //////////////////////////////////////////////////////
+  // FIREBASE LOGIN
+  //////////////////////////////////////////////////////
+
+  static async firebaseLogin(phoneNumber: string) {
 
     if (!phoneNumber) {
       throw new AppError('Phone number required', 400);
     }
 
-    const otp = OtpService.generateOTP();
-
-    await OtpService.storeOTP(phoneNumber, otp);
-
-    await OtpProvider.sendSms(phoneNumber, otp);
-
-    return { message: 'OTP sent successfully' };
-  }
-
-  /* =====================================================
-     STEP 2 — Verify OTP & Create Session
-  ===================================================== */
-  static async verifyOtp(phoneNumber: string, submittedOtp: string) {
-
-    const isValid =
-      await OtpService.verifyOTP(phoneNumber, submittedOtp);
-
-    if (!isValid) {
-      throw new AppError('Invalid OTP', 400);
-    }
-
-    // 🔒 Prevent OTP reuse
-    await OtpService.clearOTP(phoneNumber);
-
     let user =
       await AuthRepository.findByPhone(phoneNumber);
+
+    //////////////////////////////////////////////////////
+    // CREATE USER IF NOT EXISTS
+    //////////////////////////////////////////////////////
 
     if (!user) {
 
@@ -57,10 +37,15 @@ export class AuthService {
         );
 
       logger.info({
-        message: 'New customer registered',
+        event: 'NEW_CUSTOMER_REGISTERED',
         phoneNumber
       });
+
     }
+
+    //////////////////////////////////////////////////////
+    // ACCOUNT STATUS CHECK
+    //////////////////////////////////////////////////////
 
     if (!user.isActive) {
       throw new AppError(
@@ -68,6 +53,10 @@ export class AuthService {
         403
       );
     }
+
+    //////////////////////////////////////////////////////
+    // CREATE TOKENS
+    //////////////////////////////////////////////////////
 
     const payload = {
       userId: user.id,
@@ -80,6 +69,10 @@ export class AuthService {
 
     const refreshToken =
       JwtService.signRefreshToken(payload);
+
+    //////////////////////////////////////////////////////
+    // RESPONSE
+    //////////////////////////////////////////////////////
 
     return {
       user: {
@@ -94,11 +87,13 @@ export class AuthService {
         refreshToken,
       },
     };
+
   }
 
-  /* =====================================================
-     STEP 3 — Refresh Access Token
-  ===================================================== */
+  //////////////////////////////////////////////////////
+  // REFRESH ACCESS TOKEN
+  //////////////////////////////////////////////////////
+
   static async refreshSession(refreshToken: string) {
 
     const decoded =
@@ -121,5 +116,7 @@ export class AuthService {
       JwtService.signAccessToken(payload);
 
     return { accessToken: newAccessToken };
+
   }
+
 }

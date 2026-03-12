@@ -2,27 +2,13 @@ import { UserRole } from '@prisma/client';
 
 /**
  * KAAGAZSEVA - Auth Module Types
- * Defines the shape of data for authentication business logic.
+ * Firebase based authentication
  */
 
-/**
- * 1️⃣ Request OTP Input
- */
-export interface RequestOtpInput {
-  phoneNumber: string;
-}
+//////////////////////////////////////////////////////
+// AUTH USER
+//////////////////////////////////////////////////////
 
-/**
- * 2️⃣ Verify OTP Input
- */
-export interface VerifyOtpInput {
-  phoneNumber: string;
-  otp: string;
-}
-
-/**
- * 3️⃣ Authenticated User Shape
- */
 export interface AuthUser {
   id: string;
   phoneNumber: string;
@@ -30,25 +16,36 @@ export interface AuthUser {
   name?: string | null;
 }
 
-/**
- * 4️⃣ Auth Tokens
- */
+//////////////////////////////////////////////////////
+// AUTH TOKENS
+//////////////////////////////////////////////////////
+
 export interface AuthTokens {
   accessToken: string;
   refreshToken: string;
 }
 
-/**
- * 5️⃣ Final Auth Response
- */
+//////////////////////////////////////////////////////
+// AUTH RESPONSE
+//////////////////////////////////////////////////////
+
 export interface AuthResponse {
   user: AuthUser;
   tokens: AuthTokens;
 }
 
-/**
- * 6️⃣ Refresh Token Input
- */
+//////////////////////////////////////////////////////
+// FIREBASE LOGIN INPUT
+//////////////////////////////////////////////////////
+
+export interface FirebaseLoginInput {
+  phoneNumber: string;
+}
+
+//////////////////////////////////////////////////////
+// REFRESH TOKEN INPUT
+//////////////////////////////////////////////////////
+
 export interface RefreshTokenInput {
   refreshToken: string;
 }
