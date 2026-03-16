@@ -1,106 +1,97 @@
 import { Router } from 'express';
 
-import authRoutes from '../modules/auth/auth.routes';
-import userRoutes from '../modules/user/user.routes';
-import applicationRoutes from '../modules/application/application.routes';
-import walletRoutes from '../modules/wallet/wallet.routes';
-import adminRoutes from '../modules/admin/admin.routes';
-import ticketRoutes from '../modules/ticket/ticket.routes';
+import authRoutes         from '../modules/auth/auth.routes';
+import userRoutes         from '../modules/user/user.routes';
+import agentRoutes        from '../modules/agent/agent.routes';
+import applicationRoutes  from '../modules/application/application.routes';
+import serviceRoutes      from '../modules/service/service.routes';
+import walletRoutes       from '../modules/wallet/wallet.routes';
+import paymentRoutes      from '../modules/payment/payment.routes';
+import refundRoutes       from '../modules/refund/refund.routes';
+import ticketRoutes       from '../modules/ticket/ticket.routes';
 import notificationRoutes from '../modules/notification/notification.routes';
-import otpRoutes from './otp.routes';
-import publicRoutes from '../modules/public/public.routes';
+import adminRoutes        from '../modules/admin/admin.routes';
+import publicRoutes       from '../modules/public/public.routes';
+import pincodeRoutes      from '../modules/geography/pincode.routes';
 
-import suspensionRoutes from '../modules/governance/suspension.routes';
+// Governance — all under /governance/*
+import suspensionRoutes        from '../modules/governance/suspension.routes';
 import founderVisibilityRoutes from '../modules/governance/founder-visibility.routes';
-import systemControlRoutes from '../modules/governance/system-control.routes';
-
-import refundRoutes from '../modules/refund/refund.routes';
-import paymentWebhookRoutes from '../modules/payment/payment.webhook.routes';
+import systemControlRoutes     from '../modules/governance/system-control.routes';
 
 import { ApiResponse } from '../core/ApiResponse';
-
-/**
- * KAAGAZSEVA - Master Router (API v1)
- * Central API registry
- */
 
 const router = Router();
 
 ///////////////////////////////////////////////////////
-// PUBLIC SERVICE ROUTES (NO AUTH)
+// PUBLIC — NO AUTH REQUIRED
 ///////////////////////////////////////////////////////
 
-router.use('/public', publicRoutes);
+router.use('/public',   publicRoutes);   // public service catalog
+router.use('/pincodes', pincodeRoutes);  // pincode lookup
 
 ///////////////////////////////////////////////////////
-// AUTH
+// AUTH — login, register, OTP, refresh, logout
 ///////////////////////////////////////////////////////
 
 router.use('/auth', authRoutes);
-router.use('/otp', otpRoutes);
+// OTP moved inside auth:
+// POST /auth/otp/send
+// POST /auth/otp/verify
 
 ///////////////////////////////////////////////////////
-// PAYMENTS & WEBHOOKS
+// PAYMENTS
 ///////////////////////////////////////////////////////
 
-router.use('/payments', paymentWebhookRoutes);
+router.use('/payments', paymentRoutes);
+// POST /payments/create-order
+// POST /payments/verify
+// GET  /payments/:id/status
+// POST /payments/webhook  ← Razorpay webhook
 
 ///////////////////////////////////////////////////////
-// CORE USER MODULES
+// CORE PLATFORM
 ///////////////////////////////////////////////////////
 
-router.use('/users', userRoutes);
+router.use('/users',        userRoutes);
+router.use('/agents',       agentRoutes);
 router.use('/applications', applicationRoutes);
-router.use('/wallet', walletRoutes);
+router.use('/services',     serviceRoutes);
+router.use('/wallet',       walletRoutes);
 
 ///////////////////////////////////////////////////////
-// REFUND GOVERNANCE (PHASE 5B)
+// REFUNDS & SUPPORT
 ///////////////////////////////////////////////////////
 
-router.use('/refunds', refundRoutes);
-
-///////////////////////////////////////////////////////
-// GOVERNANCE & SUSPENSION (PHASE 6)
-///////////////////////////////////////////////////////
-
-router.use('/suspensions', suspensionRoutes);
-
-///////////////////////////////////////////////////////
-// FOUNDER VISIBILITY
-///////////////////////////////////////////////////////
-
-router.use('/governance', founderVisibilityRoutes);
-
-///////////////////////////////////////////////////////
-// PHASE 8 - SYSTEM CONTROL (FOUNDER EMERGENCY CONTROLS)
-///////////////////////////////////////////////////////
-
-router.use('/governance/system', systemControlRoutes);
-
-///////////////////////////////////////////////////////
-// SUPPORT MODULES
-///////////////////////////////////////////////////////
-
-router.use('/tickets', ticketRoutes);
+router.use('/refunds',       refundRoutes);
+router.use('/tickets',       ticketRoutes);
 router.use('/notifications', notificationRoutes);
 
 ///////////////////////////////////////////////////////
-// STATE ADMIN PANEL
+// GOVERNANCE — all under /governance
+///////////////////////////////////////////////////////
+
+router.use('/governance/suspensions', suspensionRoutes);
+router.use('/governance/visibility',  founderVisibilityRoutes);
+router.use('/governance/system',      systemControlRoutes);
+
+///////////////////////////////////////////////////////
+// ADMIN PANEL
 ///////////////////////////////////////////////////////
 
 router.use('/admin', adminRoutes);
 
 ///////////////////////////////////////////////////////
-// API HEALTH CHECK
+// API HEALTH
 ///////////////////////////////////////////////////////
 
 router.get('/health', (_req, res) => {
   return ApiResponse.success(res, 'API healthy', {
     status: 'healthy',
     environment: process.env.NODE_ENV,
-    uptime: process.uptime(),
+    uptime: Math.floor(process.uptime()),
     timestamp: new Date().toISOString(),
-    version: '1.0.0-enterprise',
+    version: process.env.npm_package_version || '1.0.0',
   });
 });
 
@@ -109,11 +100,10 @@ router.get('/health', (_req, res) => {
 ///////////////////////////////////////////////////////
 
 router.use('*', (req, res) => {
-  return res.status(404).json({
-    success: false,
-    message: 'API route not found',
-    path: req.originalUrl,
-  });
+  return ApiResponse.notFound(
+    res,
+    `Route not found: ${req.method} ${req.originalUrl}`
+  );
 });
 
 export default router;
