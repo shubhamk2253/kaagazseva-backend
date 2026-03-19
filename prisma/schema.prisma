@@ -22,11 +22,22 @@ enum UserRole {
 enum ApplicationStatus {
   DRAFT
   PENDING_PAYMENT
-  SUBMITTED
+  PAID
+  ASSIGNING
   ASSIGNED
-  UNDER_REVIEW
-  DOCUMENT_REQUIRED
+  ACCEPTED
+  IN_PROGRESS
+  DOCS_COLLECTED
+  SUBMITTED
+  GOVT_PROCESSING
   COMPLETED
+  CONFIRMED
+  CLOSED
+  REASSIGNING
+  ON_HOLD
+  DISPUTED
+  REFUND_PENDING
+  REFUNDED
   REJECTED
   CANCELLED
 }
@@ -57,6 +68,13 @@ enum TransactionType {
 enum ServiceMode {
   DIGITAL
   DOORSTEP
+  FULL_COMPLETION
+}
+
+enum ServiceScope {
+  NATIONAL
+  STATE
+  DISTRICT
 }
 
 enum DocumentStatus {
@@ -84,7 +102,9 @@ enum WithdrawalStatus {
 enum NotificationType {
   APPLICATION_UPDATE
   PAYMENT_UPDATE
+  AGENT_ASSIGNMENT
   SYSTEM_ALERT
+  ESCALATION_UPDATE
   GENERAL
 }
 
@@ -105,6 +125,8 @@ enum TicketPriority {
 enum TicketCategory {
   PAYMENT_ISSUE
   DOCUMENT_REJECTION
+  AGENT_MISCONDUCT
+  SERVICE_DELAY
   TECHNICAL_GLITCH
   GENERAL_QUERY
 }
@@ -118,6 +140,8 @@ enum AuditAction {
   LOGOUT
   PAYMENT
   ACCESS
+  ASSIGNMENT
+  PAYOUT
 }
 
 enum RefundStatus {
@@ -127,19 +151,113 @@ enum RefundStatus {
   PROCESSED
 }
 
+enum KycStatus {
+  PENDING
+  SUBMITTED
+  VERIFIED
+  REJECTED
+}
+
+enum PayoutStatus {
+  PENDING
+  PROCESSING
+  SUCCESS
+  FAILED
+}
+
+///////////////////////////////////////////////////////
+// GEOGRAPHY
+///////////////////////////////////////////////////////
+
+model State {
+  id       String  @id @default(uuid())
+  name     String
+  code     String  @unique // MH, UP, RJ etc.
+  capital  String?
+  isUt     Boolean @default(false) // Union Territory flag
+  isActive Boolean @default(true)
+
+  districts    District[]
+  services     Service[]
+  pincodes     Pincode[]
+  users        User[]
+  applications Application[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([code])
+  @@index([isActive])
+}
+
+model District {
+  id   String @id @default(uuid())
+  name String
+
+  stateId String
+  state   State  @relation(fields: [stateId], references: [id], onDelete: Cascade)
+
+  // Centroid coordinates for radius-based fallback assignment
+  latitude  Float?
+  longitude Float?
+
+  isActive Boolean @default(true)
+
+  pincodes     Pincode[]
+  users        User[]
+  applications Application[]
+
+  createdAt DateTime @default(now())
+
+  @@unique([name, stateId])
+  @@index([stateId])
+}
+
+model Pincode {
+  id   String @id @default(uuid())
+  code String @unique
+
+  districtId String
+  district   District @relation(fields: [districtId], references: [id], onDelete: Cascade)
+
+  stateId String
+  state   State  @relation(fields: [stateId], references: [id], onDelete: Cascade)
+
+  officeName String?
+  officeType String? // HO, SO, BO
+  latitude   Float?
+  longitude  Float?
+  isActive   Boolean @default(true)
+
+  createdAt DateTime @default(now())
+
+  @@index([code])
+  @@index([districtId])
+  @@index([stateId])
+}
+
 ///////////////////////////////////////////////////////
 // USER & PROFILE
 ///////////////////////////////////////////////////////
 
 model User {
   id          String   @id @default(uuid())
-  phoneNumber String   @unique
+  phoneNumber String?  @unique
+  email       String?  @unique
+  password    String? // hashed
   name        String?
   role        UserRole @default(CUSTOMER)
   isActive    Boolean  @default(true)
   isOnline    Boolean  @default(false)
+  fcmToken    String? // Firebase push notification token
 
-  // Suspension Logic
+  // Geography relations (proper FK, not plain strings)
+  stateId    String?
+  state      State?    @relation(fields: [stateId], references: [id])
+  districtId String?
+  district   District? @relation(fields: [districtId], references: [id])
+
+  // Suspension
   suspensionStatus         SuspensionStatus @default(NONE)
   isSuspended              Boolean          @default(false)
   suspensionReviewDeadline DateTime?
@@ -148,19 +266,14 @@ model User {
   suspendedBy              String?
   suspendedAt              DateTime?
 
-  // Location Data
-  state           String?
-  district        String?
-  latitude        Float?
-  longitude       Float?
-  serviceRadiusKm Int     @default(10)
-
   // Relations
-  wallet           Wallet?
+  agentProfile AgentProfile?
+  wallet       Wallet?
+
   applications     Application[]           @relation("CustomerApplications")
   assignedApps     Application[]           @relation("AgentApplications")
   appAssignments   ApplicationAssignment[]
-  agentServices    AgentService[] // Capabilities mapping
+  agentServices    AgentService[]
   transactions     Transaction[]
   escrowAsCustomer EscrowHolding[]         @relation("EscrowCustomer")
   escrowAsAgent    EscrowHolding[]         @relation("EscrowAgent")
@@ -170,6 +283,7 @@ model User {
   rejectedWithdrawals WithdrawalRequest[] @relation("RejectedWithdrawals")
 
   agentMetrics  AgentMetrics?
+  agentPayouts  AgentPayout[]
   notifications Notification[]
 
   ticketsCreated  Ticket[]         @relation("CreatedTickets")
@@ -190,8 +304,64 @@ model User {
   updatedAt DateTime @updatedAt
 
   @@index([role])
-  @@index([state])
-  @@index([district])
+  @@index([stateId])
+  @@index([districtId])
+  @@index([isActive, role])
+  @@index([isSuspended])
+  @@index([email])
+  @@index([phoneNumber])
+}
+
+///////////////////////////////////////////////////////
+// AGENT PROFILE
+// Separated from User to keep User model clean
+// Only exists for users with role = AGENT
+///////////////////////////////////////////////////////
+
+model AgentProfile {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // KYC verification
+  kycStatus       KycStatus @default(PENDING)
+  aadhaarVerified Boolean   @default(false)
+  panVerified     Boolean   @default(false)
+  policeVerified  Boolean   @default(false)
+  kycDocumentUrl  String?
+  kycVerifiedAt   DateTime?
+  kycVerifiedBy   String?
+
+  // Live location (updated by agent app in realtime)
+  latitude        Float?
+  longitude       Float?
+  lastLocationAt  DateTime?
+  serviceRadiusKm Int       @default(25)
+
+  // Availability
+  isAvailable   Boolean   @default(true)
+  availableFrom DateTime?
+  availableTo   DateTime?
+
+  // Razorpay payout account
+  razorpayContactId     String?
+  razorpayFundAccountId String?
+  bankVerified          Boolean @default(false)
+  bankAccountNumber     String?
+  bankIfsc              String?
+  bankAccountName       String?
+
+  // Onboarding
+  onboardingComplete Boolean   @default(false)
+  probationEndsAt    DateTime? // first 10 jobs in probation
+  depositAmount      Decimal?  @db.Decimal(12, 2) // refundable bond
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isAvailable])
+  @@index([latitude, longitude])
+  @@index([kycStatus])
 }
 
 ///////////////////////////////////////////////////////
@@ -215,7 +385,7 @@ model Wallet {
 
 model Transaction {
   id             String   @id @default(uuid())
-  idempotencyKey String?  @unique
+  idempotencyKey String?  @unique // prevents duplicate transactions
   amount         Decimal  @db.Decimal(12, 2)
   balanceBefore  Decimal? @db.Decimal(12, 2)
   balanceAfter   Decimal? @db.Decimal(12, 2)
@@ -240,6 +410,93 @@ model Transaction {
   @@index([status])
   @@index([referenceId])
   @@index([walletId])
+  @@index([createdAt])
+  @@index([type, status])
+}
+
+model EscrowHolding {
+  id            String      @id @default(uuid())
+  applicationId String      @unique
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  customerId String
+  customer   User   @relation("EscrowCustomer", fields: [customerId], references: [id], onDelete: Cascade)
+
+  agentId String?
+  agent   User?   @relation("EscrowAgent", fields: [agentId], references: [id])
+
+  totalAmount    Decimal @db.Decimal(12, 2)
+  platformAmount Decimal @db.Decimal(12, 2)
+  agentAmount    Decimal @db.Decimal(12, 2)
+  deliveryAmount Decimal @default(0) @db.Decimal(12, 2)
+
+  isReleased  Boolean   @default(false)
+  releasedAt  DateTime?
+  releaseNote String?
+
+  // Razorpay transfer reference
+  transferId String?
+
+  createdAt DateTime @default(now())
+
+  @@index([customerId])
+  @@index([isReleased])
+  @@index([agentId])
+}
+
+model AgentPayout {
+  id      String @id @default(uuid())
+  agentId String
+  agent   User   @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  applicationId String
+  amount        Decimal      @db.Decimal(12, 2)
+  status        PayoutStatus @default(PENDING)
+
+  // Razorpay payout reference
+  razorpayPayoutId      String?
+  razorpayTransferId    String?
+  razorpayFundAccountId String?
+
+  processedAt   DateTime?
+  failureReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([agentId])
+  @@index([status])
+  @@index([applicationId])
+}
+
+model WithdrawalRequest {
+  id       String           @id @default(uuid())
+  agentId  String
+  walletId String
+  amount   Decimal          @db.Decimal(12, 2)
+  status   WithdrawalStatus
+
+  approvedBy      String?
+  rejectedBy      String?
+  rejectionReason String?
+
+  approvedAt  DateTime?
+  rejectedAt  DateTime?
+  processedAt DateTime?
+
+  // Razorpay payout reference
+  razorpayPayoutId String?
+
+  createdAt DateTime @default(now())
+
+  agent    User   @relation("AgentWithdrawals", fields: [agentId], references: [id], onDelete: Cascade)
+  wallet   Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  approver User?  @relation("ApprovedWithdrawals", fields: [approvedBy], references: [id])
+  rejector User?  @relation("RejectedWithdrawals", fields: [rejectedBy], references: [id])
+
+  @@index([agentId])
+  @@index([status])
+  @@index([createdAt])
 }
 
 ///////////////////////////////////////////////////////
@@ -247,16 +504,25 @@ model Transaction {
 ///////////////////////////////////////////////////////
 
 model Application {
-  id          String @id @default(uuid())
-  state       String
-  district    String
-  serviceType String
+  id              String @id @default(uuid())
+  referenceNumber String @unique // KS-2024-000001
 
-  serviceId String?
-  service   Service? @relation(fields: [serviceId], references: [id])
+  // Geography — proper relations not plain strings
+  stateId    String
+  state      State    @relation(fields: [stateId], references: [id])
+  districtId String
+  district   District @relation(fields: [districtId], references: [id])
+
+  serviceId String
+  service   Service @relation(fields: [serviceId], references: [id])
 
   mode   ServiceMode
   status ApplicationStatus @default(DRAFT)
+
+  // Pricing snapshot — immutable after payment
+  // Structure: { govtFee, multiplier, serviceFee, deliveryFee,
+  //              totalAmount, distanceKm, calculatedAt, pricingRuleId }
+  pricingSnapshot Json?
 
   govtFee            Decimal @db.Decimal(12, 2)
   serviceFee         Decimal @db.Decimal(12, 2)
@@ -265,37 +531,63 @@ model Application {
   deliveryFee        Decimal @default(0.0) @db.Decimal(12, 2)
   totalAmount        Decimal @db.Decimal(12, 2)
 
-  pricingSnapshot Json?
+  // Distance snapshot — immutable, prevents manipulation
+  distanceKm Float?
 
-  paymentStatus TransactionStatus @default(PENDING)
-  paidAt        DateTime?
+  // Payment
+  paymentStatus     TransactionStatus @default(PENDING)
+  paidAt            DateTime?
+  razorpayOrderId   String?
+  razorpayPaymentId String?
 
+  // Customer location snapshot
+  customerLat     Float?
+  customerLng     Float?
+  deliveryAddress String?
+  customerPincode String?
+
+  // Assignment
+  assignmentDeadline     DateTime?
+  assignedAt             DateTime?
+  acceptedAt             DateTime?
+  assignmentAttemptCount Int       @default(0)
+
+  // Completion
+  completedAt         DateTime?
+  confirmedAt         DateTime?
+  closedAt            DateTime?
+  completionProofUrl  String?
+  govtAckReceiptUrl   String?
+  customerOtpVerified Boolean   @default(false)
+
+  // Risk & escalation
+  riskScore       Int     @default(0)
+  manualReview    Boolean @default(false)
+  escalationLevel Int     @default(0)
+
+  // Refund
   refundRequested Boolean @default(false)
 
-  riskScore Int @default(0)
+  // Ratings
+  customerRating Int? // 1-5
+  agentRating    Int? // 1-5
+  customerReview String?
+  agentReview    String?
 
-  documents      ApplicationDocument[]
-  escrow         EscrowHolding?
-  refundRequests RefundRequest[]
-  history        ApplicationLog[]
-  assignments    ApplicationAssignment[]
-
+  // Relations
   customerId String
   customer   User   @relation("CustomerApplications", fields: [customerId], references: [id], onDelete: Cascade)
 
   agentId String?
   agent   User?   @relation("AgentApplications", fields: [agentId], references: [id])
 
-  assignmentDeadline DateTime?
-  assignedAt         DateTime?
-  completedAt        DateTime?
-  acceptedAt         DateTime?
-  manualReview       Boolean   @default(false)
-  escalationLevel    Int       @default(0)
-
-  deliveryAddress String?
-  customerLat     Float?
-  customerLng     Float?
+  documents   ApplicationDocument[]
+  escrow      EscrowHolding?
+  refunds     RefundRequest[]
+  history     ApplicationLog[]
+  timeline    ApplicationTimeline?
+  assignments ApplicationAssignment[]
+  tickets     Ticket[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -304,6 +596,38 @@ model Application {
   @@index([agentId])
   @@index([status])
   @@index([serviceId])
+  @@index([stateId])
+  @@index([districtId])
+  @@index([createdAt])
+  @@index([status, createdAt])
+  @@index([customerId, status])
+  @@index([referenceNumber])
+}
+
+model ApplicationTimeline {
+  id            String      @id @default(uuid())
+  applicationId String      @unique
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  // Timestamps for each milestone
+  // Null = not reached yet
+  paidAt           DateTime?
+  assigningAt      DateTime?
+  assignedAt       DateTime?
+  acceptedAt       DateTime?
+  inProgressAt     DateTime?
+  docsCollectedAt  DateTime?
+  submittedAt      DateTime?
+  govtProcessingAt DateTime?
+  completedAt      DateTime?
+  confirmedAt      DateTime?
+  closedAt         DateTime?
+  disputedAt       DateTime?
+  refundedAt       DateTime?
+  cancelledAt      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model ApplicationAssignment {
@@ -319,9 +643,14 @@ model ApplicationAssignment {
 
   assignedAt  DateTime  @default(now())
   respondedAt DateTime?
+  deadlineAt  DateTime? // 60 min acceptance deadline
 
   responseReason String?
   priorityScore  Float?
+
+  // Assignment metadata
+  districtMatch Boolean @default(false) // was agent in same district?
+  attemptNumber Int     @default(1)
 
   createdAt DateTime @default(now())
 
@@ -329,6 +658,7 @@ model ApplicationAssignment {
   @@index([applicationId])
   @@index([agentId])
   @@index([status])
+  @@index([status, assignedAt]) // for timeout detection queries
 }
 
 model ApplicationDocument {
@@ -338,8 +668,15 @@ model ApplicationDocument {
 
   name     String
   fileUrl  String
+  fileSize Int? // bytes
+  mimeType String?
   status   DocumentStatus @default(PENDING)
   feedback String?
+  version  Int            @default(1) // document versioning
+
+  // Watermark metadata
+  watermarked   Boolean @default(false)
+  watermarkData String? // agent_id + timestamp encoded
 
   uploadedAt DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -352,12 +689,16 @@ model ApplicationLog {
   applicationId String
   application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
-  fromStatus ApplicationStatus
-  toStatus   ApplicationStatus
-  note       String?
-  updatedBy  String?
+  fromStatus    ApplicationStatus
+  toStatus      ApplicationStatus
+  note          String?
+  updatedBy     String?
+  updatedByRole UserRole?
 
   createdAt DateTime @default(now())
+
+  @@index([applicationId])
+  @@index([createdAt])
 }
 
 ///////////////////////////////////////////////////////
@@ -365,33 +706,47 @@ model ApplicationLog {
 ///////////////////////////////////////////////////////
 
 model Service {
-  id          String  @id @default(uuid())
+  id          String       @id @default(uuid())
   name        String
-  slug        String  @unique
+  slug        String       @unique
   description String?
-  isActive    Boolean @default(true)
+  scope       ServiceScope @default(NATIONAL)
+  isActive    Boolean      @default(true)
 
-  stateId String
-  state   State  @relation(fields: [stateId], references: [id], onDelete: Cascade)
+  // Null = national service (available in all states)
+  stateId String?
+  state   State?  @relation(fields: [stateId], references: [id], onDelete: Cascade)
+
+  // Available modes for this service
+  availableModes ServiceMode[]
+
+  estimatedDays Int? // typical completion time
 
   pricingRules      PricingRule[]
-  documents         ServiceRequiredDocument[]
+  requiredDocuments ServiceRequiredDocument[]
   applications      Application[]
   agentCapabilities AgentService[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([scope])
+  @@index([stateId])
+  @@index([isActive])
 }
 
 model AgentService {
-  id        String  @id @default(uuid())
-  agentId   String
-  agent     User    @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  serviceId String
-  service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  isActive  Boolean @default(true)
+  id         String    @id @default(uuid())
+  agentId    String
+  agent      User      @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  serviceId  String
+  service    Service   @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  isActive   Boolean   @default(true)
+  verifiedAt DateTime?
 
   @@unique([agentId, serviceId])
+  @@index([agentId])
+  @@index([serviceId])
 }
 
 model PricingRule {
@@ -404,29 +759,46 @@ model PricingRule {
   maxGovtFee Decimal     @db.Decimal(12, 2)
   multiplier Float
 
-  serviceFee         Decimal? @db.Decimal(12, 2)
+  // Override fields — if set, use these directly
+  fixedServiceFee    Decimal? @db.Decimal(12, 2)
   platformCommission Decimal? @db.Decimal(12, 2)
   agentCommission    Decimal? @db.Decimal(12, 2)
 
+  // Delivery pricing
+  deliveryBaseFee Decimal? @db.Decimal(12, 2) // default ₹30
+  deliveryPerKm   Decimal? @db.Decimal(12, 2) // default ₹12
+  maxRadiusKm     Float? // default 25km
+
   isActive Boolean @default(true)
 
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@index([serviceId])
+  @@index([mode])
 }
 
 model ServiceRequiredDocument {
   id           String  @id @default(uuid())
   documentName String
+  description  String?
   isMandatory  Boolean @default(true)
   order        Int     @default(0)
+
+  // State-specific document requirements
+  // Null = required in all states
+  stateId String?
 
   serviceId String
   service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
+
+  @@index([serviceId])
 }
 
 ///////////////////////////////////////////////////////
-// METRICS, WITHDRAWALS & REFUNDS
+// METRICS & PERFORMANCE
 ///////////////////////////////////////////////////////
 
 model AgentMetrics {
@@ -434,152 +806,121 @@ model AgentMetrics {
   agentId String @unique
   agent   User   @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
+  // Workload
   activeCases    Int @default(0)
   completedCases Int @default(0)
-  rejectionCount Int @default(0)
-  timeoutCount   Int @default(0)
 
-  rating        Float @default(5.0)
+  // Performance
+  rejectionCount     Int    @default(0)
+  timeoutCount       Int    @default(0)
+  avgCompletionHours Float? // average time to complete
+  completionRate     Float  @default(1.0) // completed/assigned
+
+  // Quality
+  rating       Float @default(5.0)
+  ratingCount  Int   @default(0)
+  penaltyCount Int   @default(0)
+
+  // Computed priority score for assignment engine
+  // Lower = better (assigned first)
   priorityScore Float @default(0)
 
+  // Financial
+  totalEarnings Decimal @default(0) @db.Decimal(12, 2)
+  pendingPayout Decimal @default(0) @db.Decimal(12, 2)
+
   updatedAt DateTime @updatedAt
+
+  @@index([priorityScore])
+  @@index([activeCases])
+  @@index([rating])
 }
 
-model WithdrawalRequest {
-  id       String           @id @default(uuid())
-  agentId  String
-  walletId String
-  amount   Decimal          @db.Decimal(12, 2)
-  status   WithdrawalStatus
-
-  approvedBy      String?
-  rejectedBy      String?
-  rejectionReason String?
-
-  approvedAt DateTime?
-  rejectedAt DateTime?
-
-  createdAt DateTime @default(now())
-
-  agent    User   @relation("AgentWithdrawals", fields: [agentId], references: [id], onDelete: Cascade)
-  wallet   Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
-  approver User?  @relation("ApprovedWithdrawals", fields: [approvedBy], references: [id])
-  rejector User?  @relation("RejectedWithdrawals", fields: [rejectedBy], references: [id])
-
-  @@index([agentId])
-}
-
-model EscrowHolding {
-  id            String      @id @default(uuid())
-  applicationId String      @unique
-  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  customerId    String
-  customer      User        @relation("EscrowCustomer", fields: [customerId], references: [id], onDelete: Cascade)
-  agentId       String?
-  agent         User?       @relation("EscrowAgent", fields: [agentId], references: [id])
-
-  totalAmount    Decimal   @db.Decimal(12, 2)
-  platformAmount Decimal   @db.Decimal(12, 2)
-  agentAmount    Decimal   @db.Decimal(12, 2)
-  isReleased     Boolean   @default(false)
-  releasedAt     DateTime?
-
-  createdAt DateTime @default(now())
-
-  @@index([customerId])
-}
+///////////////////////////////////////////////////////
+// REFUNDS
+///////////////////////////////////////////////////////
 
 model RefundRequest {
   id            String      @id @default(uuid())
   applicationId String
   application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  requestedById String
-  requestedBy   User        @relation("RefundRequester", fields: [requestedById], references: [id])
-  reviewedById  String?
-  reviewedBy    User?       @relation("RefundReviewer", fields: [reviewedById], references: [id])
 
-  amount      Decimal      @db.Decimal(12, 2)
-  reason      String
-  status      RefundStatus @default(REQUESTED)
+  requestedById String
+  requestedBy   User   @relation("RefundRequester", fields: [requestedById], references: [id])
+
+  reviewedById String?
+  reviewedBy   User?   @relation("RefundReviewer", fields: [reviewedById], references: [id])
+
+  amount   Decimal      @db.Decimal(12, 2)
+  reason   String
+  evidence String? // URL to supporting document/screenshot
+  status   RefundStatus @default(REQUESTED)
+
+  // Razorpay refund reference
+  razorpayRefundId String?
+
   processedAt DateTime?
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   @@index([applicationId])
+  @@index([status])
+  @@index([requestedById])
 }
 
 ///////////////////////////////////////////////////////
-// SUPPORT & GEOGRAPHY
+// SUPPORT & TICKETS
 ///////////////////////////////////////////////////////
 
 model Ticket {
-  id           String           @id @default(uuid())
-  title        String
-  description  String
-  status       TicketStatus     @default(OPEN)
-  priority     TicketPriority   @default(MEDIUM)
-  category     TicketCategory
-  createdById  String
-  createdBy    User             @relation("CreatedTickets", fields: [createdById], references: [id], onDelete: Cascade)
+  id          String         @id @default(uuid())
+  title       String
+  description String
+  status      TicketStatus   @default(OPEN)
+  priority    TicketPriority @default(MEDIUM)
+  category    TicketCategory
+
+  // Optional link to application
+  applicationId String?
+  application   Application? @relation(fields: [applicationId], references: [id])
+
+  createdById String
+  createdBy   User   @relation("CreatedTickets", fields: [createdById], references: [id], onDelete: Cascade)
+
   assignedToId String?
-  assignedTo   User?            @relation("AssignedTickets", fields: [assignedToId], references: [id])
-  responses    TicketResponse[]
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
+  assignedTo   User?   @relation("AssignedTickets", fields: [assignedToId], references: [id])
+
+  resolvedAt DateTime?
+  closedAt   DateTime?
+
+  responses TicketResponse[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([createdById])
+  @@index([status])
+  @@index([priority])
+  @@index([applicationId])
 }
 
 model TicketResponse {
-  id        String   @id @default(uuid())
-  ticketId  String
-  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  message   String
+  id         String  @id @default(uuid())
+  ticketId   String
+  ticket     Ticket  @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  message    String
+  isInternal Boolean @default(false) // internal staff notes
+
   createdAt DateTime @default(now())
 
   @@index([ticketId])
 }
 
-model State {
-  id        String    @id @default(uuid())
-  name      String
-  code      String    @unique
-  isActive  Boolean   @default(true)
-  services  Service[]
-  pincodes  Pincode[]
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-}
-
-model Pincode {
-  id        String   @id @default(uuid())
-  code      String   @unique
-  district  String
-  stateId   String
-  state     State    @relation(fields: [stateId], references: [id], onDelete: Cascade)
-  latitude  Float?
-  longitude Float?
-  createdAt DateTime @default(now())
-
-  @@index([code])
-  @@index([stateId])
-}
-
 ///////////////////////////////////////////////////////
-// SYSTEM MODELS
+// SUSPENSION & COMPLIANCE
 ///////////////////////////////////////////////////////
-
-model Otp {
-  id        String   @id @default(uuid())
-  mobile    String
-  code      String
-  expiresAt DateTime
-  createdAt DateTime @default(now())
-
-  @@index([mobile])
-}
 
 model SuspensionCase {
   id     String @id @default(uuid())
@@ -595,33 +936,58 @@ model SuspensionCase {
   reason   String
   evidence Json?
 
-  appealAt      DateTime?
-  appealMessage String?
-
-  createdAt DateTime @default(now())
+  appealAt       DateTime?
+  appealMessage  String?
+  appealDeadline DateTime?
 
   escalatedToId String?
   escalatedTo   User?   @relation("EscalatedTo", fields: [escalatedToId], references: [id])
 
-  resolvedById String?
-  resolvedBy   User?   @relation("ResolvedBy", fields: [resolvedById], references: [id])
+  resolvedById   String?
+  resolvedBy     User?     @relation("ResolvedBy", fields: [resolvedById], references: [id])
+  resolvedAt     DateTime?
+  resolutionNote String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
 }
+
+///////////////////////////////////////////////////////
+// NOTIFICATIONS
+///////////////////////////////////////////////////////
 
 model Notification {
-  id        String           @id @default(uuid())
-  userId    String
-  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  type      NotificationType
-  title     String
-  message   String
-  isRead    Boolean          @default(false)
-  createdAt DateTime         @default(now())
+  id      String           @id @default(uuid())
+  userId  String
+  user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type    NotificationType
+  title   String
+  message String
+  isRead  Boolean          @default(false)
+
+  // Deep link data
+  actionUrl String?
+  metadata  Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead]) // unread notifications query
+  @@index([userId])
+  @@index([createdAt])
 }
 
+///////////////////////////////////////////////////////
+// SYSTEM & AUDIT
+///////////////////////////////////////////////////////
+
 model AuditLog {
-  id           String      @id @default(uuid())
-  userId       String?
-  user         User?       @relation(fields: [userId], references: [id])
+  id     String  @id @default(uuid())
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id])
+
   action       AuditAction
   resourceType String
   resourceId   String?
@@ -637,21 +1003,54 @@ model AuditLog {
   success    Boolean? @default(true)
 
   createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([resourceType, resourceId])
+  @@index([action])
+  @@index([createdAt])
 }
 
 model PaymentWebhookEvent {
-  id        String   @id @default(uuid())
-  eventId   String   @unique
-  eventType String
-  payload   Json
-  processed Boolean  @default(false)
+  id           String    @id @default(uuid())
+  eventId      String    @unique // Razorpay event ID — prevents duplicate processing
+  eventType    String
+  payload      Json
+  processed    Boolean   @default(false)
+  processedAt  DateTime?
+  errorMessage String?
+
   createdAt DateTime @default(now())
+
+  @@index([processed])
+  @@index([eventType])
 }
 
 model SystemControl {
-  id                String   @id @default(uuid())
-  paymentsFrozen    Boolean  @default(false)
-  withdrawalsFrozen Boolean  @default(false)
-  refundsFrozen     Boolean  @default(false)
-  updatedAt         DateTime @updatedAt
+  id                String  @id @default(uuid())
+  paymentsFrozen    Boolean @default(false)
+  withdrawalsFrozen Boolean @default(false)
+  refundsFrozen     Boolean @default(false)
+  assignmentsPaused Boolean @default(false) // NEW — pause all assignments
+  maintenanceMode   Boolean @default(false) // NEW — full platform pause
+
+  updatedAt  DateTime @updatedAt
+  updatedBy  String? // who flipped the switch
+  updateNote String? // why it was changed
+}
+
+model AppConfig {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       String
+  description String?
+  updatedAt   DateTime @updatedAt
+
+  // Stores runtime config like:
+  // max_agent_active_cases = 25
+  // max_service_radius_km = 25
+  // agent_acceptance_timeout_mins = 60
+  // min_service_fee = 99
+  // max_service_fee = 800
+  // delivery_base_fee = 30
+  // delivery_per_km = 12
 }

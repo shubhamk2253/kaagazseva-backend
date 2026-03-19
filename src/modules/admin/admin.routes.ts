@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { AdminController } from './admin.controller';
 import { requireAuth } from '../../middleware/auth.middleware';
-import { authorizeRoles } from '../../middleware/role.middleware';
+import { requireAuthRole } from '../middleware/auth.middleware';
 import { apiLimiter } from '../../middleware/rateLimit.middleware';
 
 /**

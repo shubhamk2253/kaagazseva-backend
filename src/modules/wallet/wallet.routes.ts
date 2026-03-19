@@ -3,7 +3,7 @@ import { WalletController } from './wallet.controller';
 import { walletSchema } from './wallet.schema';
 import { validate } from '../../middleware/validate.middleware';
 import { requireAuth } from '../../middleware/auth.middleware';
-import { authorizeRoles } from '../../middleware/role.middleware';
+import { requireAuthRole } from '../middleware/auth.middleware';
 import { apiLimiter } from '../../middleware/rateLimit.middleware';
 
 /**

@@ -4,94 +4,86 @@ import logger from '../core/logger';
 
 /**
  * KAAGAZSEVA - Redis Layer
+ * ioredis client with:
+ * - Auto TLS detection for Render (rediss://)
+ * - Exponential retry with ceiling
+ * - BullMQ compatible (maxRetriesPerRequest: null)
+ * - Graceful shutdown handled by app.ts
  */
 
 export const redis = new Redis(env.REDIS_URL, {
 
-  lazyConnect: true,
-
-  maxRetriesPerRequest: null,
-
-  enableReadyCheck: false,
-
-  enableOfflineQueue: true, // FIXED
-
-  connectTimeout: 10000,
+  lazyConnect:          true,
+  maxRetriesPerRequest: null,   // required for BullMQ
+  enableReadyCheck:     false,
+  enableOfflineQueue:   true,
+  connectTimeout:       15000,  // 15s for Render cold starts
 
   retryStrategy: (times: number) => {
-
     if (times > 20) {
-      logger.error('Redis retry attempts exceeded');
-      return null;
+      logger.error({
+        event:   'REDIS_RETRY_EXCEEDED',
+        message: 'Redis gave up after 20 attempts',
+      });
+      return null; // stop retrying
     }
-
-    const delay = Math.min(times * 200, 5000);
-
-    return delay;
+    return Math.min(times * 200, 5000); // max 5s between retries
   },
 
+  // Auto TLS — Render Redis uses rediss://
   tls: env.REDIS_URL.startsWith('rediss://') ? {} : undefined,
 
 });
 
 ///////////////////////////////////////////////////////////
-// REDIS EVENT LOGGING
+// EVENT LOGGING
 ///////////////////////////////////////////////////////////
 
 redis.on('connect', () => {
-
-  logger.info({
-    event: 'REDIS_CONNECTING'
-  });
-
+  logger.info({ event: 'REDIS_CONNECTING' });
 });
 
 redis.on('ready', () => {
-
-  logger.info({
-    event: 'REDIS_READY'
-  });
-
+  logger.info({ event: 'REDIS_READY' });
 });
 
 redis.on('error', (err) => {
-
   logger.error({
-    event: 'REDIS_ERROR',
-    error: err.message
+    event:   'REDIS_ERROR',
+    message: err.message,
   });
-
 });
 
 redis.on('reconnecting', () => {
+  logger.warn({ event: 'REDIS_RECONNECTING' });
+});
 
-  logger.warn({
-    event: 'REDIS_RECONNECTING'
-  });
+redis.on('close', () => {
+  logger.warn({ event: 'REDIS_CLOSED' });
+});
 
+redis.on('end', () => {
+  logger.warn({ event: 'REDIS_CONNECTION_ENDED' });
 });
 
 ///////////////////////////////////////////////////////////
-// GRACEFUL SHUTDOWN
+// HEALTH CHECK — used by /health endpoint in app.ts
 ///////////////////////////////////////////////////////////
 
-const shutdown = async () => {
-
+export async function isRedisHealthy(): Promise<boolean> {
   try {
-
-    logger.info('Closing Redis connection...');
-
-    await redis.quit();
-
-    logger.info('Redis connection closed');
-
-  } catch (error) {
-
-    logger.error('Redis shutdown failed');
-
+    const result = await redis.ping();
+    return result === 'PONG';
+  } catch {
+    return false;
   }
+}
 
-};
+///////////////////////////////////////////////////////////
+// GRACEFUL DISCONNECT — called by app.ts shutdown handler
+// Do NOT add SIGINT/SIGTERM here — app.ts owns shutdown
+///////////////////////////////////////////////////////////
 
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
+export async function disconnectRedis(): Promise<void> {
+  await redis.quit();
+}

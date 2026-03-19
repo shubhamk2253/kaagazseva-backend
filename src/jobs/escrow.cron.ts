@@ -1,45 +1,51 @@
-import cron from 'node-cron';
+import cron           from 'node-cron';
 import { EscrowEngine } from '../modules/escrow/escrow.engine';
-import { redis } from '../config/redis';
-import logger from '../core/logger';
+import { redis }      from '../config/redis';
+import logger         from '../core/logger';
 
 /**
  * KAAGAZSEVA - Escrow Auto Release Scheduler
- *
- * Runs every 5 minutes
+ * Runs every 5 minutes (IST)
+ * Delegates to EscrowEngine.processAutoRelease()
  * Protected with Redis distributed lock
  */
 
-export const startEscrowCron = () => {
+const LOCK_KEY     = 'lock:escrow-cron';
+const LOCK_TTL_SEC = 270; // 4.5 min (cron runs every 5)
 
-  cron.schedule(
+export const startEscrowCron = (): cron.ScheduledTask => {
+
+  logger.info({ event: 'ESCROW_CRON_SCHEDULED' });
+
+  const task = cron.schedule(
     '*/5 * * * *',
     async () => {
 
-      const lockKey = 'escrow_cron_lock';
-
-      // prevent multi-instance execution
-      const lock = await redis.set(lockKey, 'locked', 'EX', 240, 'NX');
+      // Distributed lock — prevents duplicate execution
+      const lock = await redis.set(
+        LOCK_KEY, '1', 'EX', LOCK_TTL_SEC, 'NX'
+      );
 
       if (!lock) {
-        logger.warn('Escrow cron already running on another instance');
+        logger.debug({ event: 'ESCROW_CRON_SKIPPED', reason: 'lock_active' });
         return;
       }
 
-      logger.info('⏰ Escrow Cron Triggered');
+      logger.info({ event: 'ESCROW_CRON_TRIGGERED' });
 
       try {
-
         await EscrowEngine.processAutoRelease();
+        logger.info({ event: 'ESCROW_CRON_COMPLETE' });
 
-      } catch (error) {
+        // Only release lock on success
+        await redis.del(LOCK_KEY);
 
-        logger.error('Escrow Cron Failed', error);
-
-      } finally {
-
-        await redis.del(lockKey);
-
+      } catch (error: any) {
+        logger.error({
+          event:  'ESCROW_CRON_FAILED',
+          error:  error.message,
+        });
+        // Lock expires naturally — prevents retry of failed run
       }
 
     },
@@ -48,5 +54,5 @@ export const startEscrowCron = () => {
     }
   );
 
-  logger.info('🚀 Escrow Cron Scheduled (Every 5 minutes)');
+  return task;
 };
