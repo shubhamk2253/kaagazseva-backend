@@ -1,23 +1,29 @@
-import { Router } from 'express';
-import { ApplicationController } from './application.controller';
-import { applicationSchema } from './application.schema';
-import { validate } from '../../middleware/validate.middleware';
-import { requireAuth } from '../../middleware/auth.middleware';
-import { requireAuthRole } from '../middleware/auth.middleware';
-import { apiLimiter } from '../../middleware/rateLimit.middleware';
-import { upload } from '../../middleware/upload.middleware';
-import { UserRole } from '@prisma/client';
-import { z } from 'zod';
+import { Router }                  from 'express';
+import { ApplicationController }   from './application.controller';
+import { applicationSchema }       from './application.schema';
+import { validate }                from '../../middleware/validate.middleware';
+import { requireAuth, requireRole } from '../../middleware/auth.middleware';
+import {
+  uploadMultiple,
+  uploadProof,
+}                                  from '../../middleware/upload.middleware';
+import { UserRole }                from '@prisma/client';
+import { z }                       from 'zod';
+
+/**
+ * KAAGAZSEVA - Application Routes
+ * Base: /api/v1/applications
+ */
 
 const router = Router();
 
 /* =====================================================
-   PARAM VALIDATION
+   SHARED PARAM SCHEMA
 ===================================================== */
 
-const idParamSchema = z.object({
+const idParam = z.object({
   params: z.object({
-    id: z.string().uuid('Invalid Application ID'),
+    id: z.string().uuid('Invalid application ID'),
   }),
 });
 
@@ -27,76 +33,100 @@ const idParamSchema = z.object({
 
 router.use(requireAuth);
 
-////////////////////////////////////////////////////////
-// 🔹 STEP 1 — CREATE DRAFT
-// POST /api/v1/applications/draft
-////////////////////////////////////////////////////////
+/* =====================================================
+   CUSTOMER ROUTES
+===================================================== */
 
+// POST /api/v1/applications
+// Create application draft
 router.post(
-  '/draft',
-  apiLimiter,
+  '/',
   validate(applicationSchema.createDraft),
   ApplicationController.createDraft
 );
 
-////////////////////////////////////////////////////////
-// 🔹 STEP 2 — UPLOAD DOCUMENTS
 // POST /api/v1/applications/:id/documents
-////////////////////////////////////////////////////////
-
+// Upload documents to draft
 router.post(
   '/:id/documents',
-  apiLimiter,
-  validate(idParamSchema),
-  upload.array('documents', 5),
+  validate(idParam),
+  uploadMultiple,
   ApplicationController.uploadDocuments
 );
 
-////////////////////////////////////////////////////////
-// 🔹 CUSTOMER DASHBOARD
-// GET /api/v1/applications/me
-////////////////////////////////////////////////////////
+// POST /api/v1/applications/:id/confirm
+// Customer confirms service completion → releases payout
+router.post(
+  '/:id/confirm',
+  validate(idParam),
+  ApplicationController.confirmCompletion
+);
 
+// POST /api/v1/applications/:id/cancel
+// Cancel application
+router.post(
+  '/:id/cancel',
+  validate({
+    ...idParam,
+    body: z.object({
+      reason: z.string().min(10, 'Please provide a reason'),
+    }),
+  }),
+  ApplicationController.cancel
+);
+
+// GET /api/v1/applications/my
+// Customer's own applications
 router.get(
-  '/me',
-  validate(applicationSchema.filter),
+  '/my',
+  validate({ query: applicationSchema.filter }),
   ApplicationController.getMyApplications
 );
 
-////////////////////////////////////////////////////////
-// 🔹 STAFF DASHBOARD LIST
-// GET /api/v1/applications
-////////////////////////////////////////////////////////
-
-router.get(
-  '/',
-  authorizeRoles(UserRole.STATE_ADMIN, UserRole.AGENT),
-  validate(applicationSchema.filter),
-  ApplicationController.listApplications
-);
-
-////////////////////////////////////////////////////////
-// 🔹 SHARED DETAIL VIEW
 // GET /api/v1/applications/:id
-////////////////////////////////////////////////////////
-
+// Application detail (customer sees own, staff sees all)
 router.get(
   '/:id',
-  validate(idParamSchema),
+  validate(idParam),
   ApplicationController.getDetails
 );
 
-////////////////////////////////////////////////////////
-// 🔹 STATUS UPDATE
-// PATCH /api/v1/applications/:id/status
-////////////////////////////////////////////////////////
+/* =====================================================
+   STAFF ROUTES — Agent + Admin
+===================================================== */
 
+// GET /api/v1/applications
+// Full application list with filters
+router.get(
+  '/',
+  requireRole([UserRole.STATE_ADMIN, UserRole.DISTRICT_ADMIN,
+               UserRole.FOUNDER,     UserRole.AGENT]),
+  validate({ query: applicationSchema.filter }),
+  ApplicationController.listApplications
+);
+
+// PATCH /api/v1/applications/:id/status
+// Update application status
 router.patch(
   '/:id/status',
-  apiLimiter,
-  authorizeRoles(UserRole.STATE_ADMIN, UserRole.AGENT),
+  requireRole([UserRole.STATE_ADMIN, UserRole.DISTRICT_ADMIN,
+               UserRole.FOUNDER,     UserRole.AGENT]),
   validate(applicationSchema.updateStatus),
   ApplicationController.updateStatus
+);
+
+/* =====================================================
+   AGENT ROUTES — Completion proof upload
+===================================================== */
+
+// POST /api/v1/applications/:id/proof
+// Agent uploads completion proof
+router.post(
+  '/:id/proof',
+  requireRole([UserRole.AGENT]),
+  validate(idParam),
+  uploadProof,
+  ApplicationController.uploadDocuments
 );
 
 export default router;

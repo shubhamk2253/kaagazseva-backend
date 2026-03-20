@@ -1,230 +1,241 @@
-import { Response } from 'express';
-import { ApplicationService } from './application.service';
-import { asyncHandler } from '../../core/asyncHandler';
-import { ApiResponse } from '../../core/ApiResponse';
-import { RequestWithUser } from '../../core/types';
-import { ApplicationStatus, ServiceMode } from '@prisma/client';
-import { StorageService } from '../../infrastructure/storage/storage.service';
-import { AppError } from '../../core/AppError';
-import logger from '../../core/logger';
+import { Response }             from 'express';
+import { ApplicationService }   from './application.service';
+import { asyncHandler }         from '../../core/asyncHandler';
+import { ApiResponse }          from '../../core/ApiResponse';
+import { AuthenticatedRequest } from '../../core/types';
+import { ApplicationStatus }    from '@prisma/client';
+import { StorageService }       from '../../providers/storage.service';
+import { AppError }             from '../../core/AppError';
+import logger                   from '../../core/logger';
 
 /**
  * KAAGAZSEVA - Application Controller
+ * Validation handled by validate.middleware in routes
+ * No manual validation in controller
  */
+
 export class ApplicationController {
 
-  //////////////////////////////////////////////////////
-  // CREATE DRAFT
-  //////////////////////////////////////////////////////
+  /* =====================================================
+     POST /api/v1/applications
+     Create application draft
+  ===================================================== */
 
   static createDraft = asyncHandler(
-    async (req: RequestWithUser, res: Response) => {
+    async (req: AuthenticatedRequest, res: Response) => {
+      const userId = req.user.userId;
+      const result = await ApplicationService.createDraft(userId, req.body);
 
-      const userId = req.user!.userId;
-
-      const {
-        serviceId,
-        stateId,
-        pincode,
-        mode,
-        customerLat,
-        customerLng,
-        deliveryAddress,
-      } = req.body;
-
-      if (!serviceId || !stateId || !pincode || !mode) {
-        throw new AppError('Missing required fields', 400);
-      }
-
-      if (!Object.values(ServiceMode).includes(mode)) {
-        throw new AppError('Invalid service mode', 400);
-      }
-
-      if (!/^[0-9]{6}$/.test(pincode)) {
-        throw new AppError('Invalid pincode format', 400);
-      }
-
-      const result = await ApplicationService.createDraft(
+      logger.info({
+        event:         'APPLICATION_DRAFT_CREATED',
         userId,
-        {
-          serviceId,
-          stateId,
-          pincode,
-          mode,
-          customerLat,
-          customerLng,
-          deliveryAddress,
-        }
-      );
+        applicationId: result.applicationId,
+        requestId:     req.requestId,
+      });
 
-      logger.info(
-        `Draft created by ${userId} | Application=${result.applicationId} | RequestID=${req.requestId}`
-      );
-
-      return ApiResponse.success(
-        res,
-        'Draft created successfully',
-        result,
-        201
-      );
+      return ApiResponse.created(res, 'Draft created successfully', result);
     }
   );
 
-  //////////////////////////////////////////////////////
-  // UPLOAD DOCUMENTS
-  //////////////////////////////////////////////////////
+  /* =====================================================
+     POST /api/v1/applications/:id/documents
+     Upload documents to application
+  ===================================================== */
 
   static uploadDocuments = asyncHandler(
-    async (req: RequestWithUser, res: Response) => {
-
-      const { id } = req.params;
-      const userId = req.user!.userId;
-      const files = req.files as Express.Multer.File[];
+    async (req: AuthenticatedRequest, res: Response) => {
+      const { id }   = req.params;
+      const userId   = req.user.userId;
+      const files    = req.files as Express.Multer.File[];
 
       if (!files || files.length === 0) {
-        throw new AppError('At least one document required', 400);
+        throw new AppError('At least one document required', 400, true, 'FILE_REQUIRED');
       }
 
       const uploads = await Promise.all(
         files.map(file =>
-          StorageService.uploadDocument(file, 'applications', userId)
+          StorageService.uploadDocument(file, 'applications', userId, id)
         )
       );
 
       const documents = uploads.map((upload, index) => ({
-        name: files[index].originalname,
-        fileUrl: upload.key,
+        name:     files[index].originalname,
+        fileUrl:  upload.key,
+        fileSize: files[index].size,
+        mimeType: files[index].mimetype,
       }));
 
-      const updated =
-        await ApplicationService.attachDocuments(
-          id,
-          userId,
-          documents
-        );
-
-      logger.info(
-        `Documents uploaded for draft ${id} by ${userId}`
+      const updated = await ApplicationService.attachDocuments(
+        id, userId, documents
       );
 
-      return ApiResponse.success(
-        res,
-        'Documents uploaded successfully',
-        updated
-      );
+      logger.info({
+        event:         'APPLICATION_DOCUMENTS_UPLOADED',
+        applicationId: id,
+        userId,
+        count:         files.length,
+        requestId:     req.requestId,
+      });
+
+      return ApiResponse.success(res, 'Documents uploaded successfully', updated);
     }
   );
 
-  //////////////////////////////////////////////////////
-  // CUSTOMER DASHBOARD
-  //////////////////////////////////////////////////////
+  /* =====================================================
+     GET /api/v1/applications/my
+     Customer's own applications (paginated)
+  ===================================================== */
 
   static getMyApplications = asyncHandler(
-    async (req: RequestWithUser, res: Response) => {
-
-      const userId = req.user!.userId;
+    async (req: AuthenticatedRequest, res: Response) => {
+      const userId = req.user.userId;
 
       const filters = {
         customerId: userId,
-        status: req.query.status as ApplicationStatus | undefined,
-        serviceId: req.query.serviceId as string | undefined,
-        page: Number(req.query.page) || 1,
-        limit: Number(req.query.limit) || 10,
+        status:     req.query.status as ApplicationStatus | undefined,
+        serviceId:  req.query.serviceId as string | undefined,
+        page:       Number(req.query.page)  || 1,
+        limit:      Number(req.query.limit) || 10,
       };
 
-      const result =
-        await ApplicationService.listApplications(filters);
+      const result = await ApplicationService.listApplications(filters);
 
-      return ApiResponse.success(
+      return ApiResponse.paginated(
         res,
-        'Your applications retrieved successfully',
-        result
+        'Your applications retrieved',
+        result.items,
+        result.meta
       );
     }
   );
 
-  //////////////////////////////////////////////////////
-  // STAFF DASHBOARD
-  //////////////////////////////////////////////////////
+  /* =====================================================
+     GET /api/v1/applications
+     Staff/admin application list (paginated)
+  ===================================================== */
 
   static listApplications = asyncHandler(
-    async (req: RequestWithUser, res: Response) => {
-
+    async (req: AuthenticatedRequest, res: Response) => {
       const filters = {
-        status: req.query.status as ApplicationStatus | undefined,
+        status:    req.query.status    as ApplicationStatus | undefined,
         serviceId: req.query.serviceId as string | undefined,
-        agentId: req.query.agentId as string | undefined,
-        page: Number(req.query.page) || 1,
-        limit: Number(req.query.limit) || 10,
+        agentId:   req.query.agentId   as string | undefined,
+        page:      Number(req.query.page)  || 1,
+        limit:     Number(req.query.limit) || 10,
       };
 
-      const result =
-        await ApplicationService.listApplications(filters);
+      const result = await ApplicationService.listApplications(filters);
 
-      return ApiResponse.success(
+      return ApiResponse.paginated(
         res,
-        'Applications retrieved successfully',
-        result
+        'Applications retrieved',
+        result.items,
+        result.meta
       );
     }
   );
 
-  //////////////////////////////////////////////////////
-  // APPLICATION DETAIL
-  //////////////////////////////////////////////////////
+  /* =====================================================
+     GET /api/v1/applications/:id
+     Application detail
+  ===================================================== */
 
   static getDetails = asyncHandler(
-    async (req: RequestWithUser, res: Response) => {
+    async (req: AuthenticatedRequest, res: Response) => {
+      const { id }          = req.params;
+      const { userId, role } = req.user;
 
-      const { id } = req.params;
-      const { userId, role } = req.user!;
-
-      const details =
-        await ApplicationService.getApplicationDetails(
-          id,
-          userId,
-          role
-        );
-
-      return ApiResponse.success(
-        res,
-        'Application details retrieved successfully',
-        details
+      const details = await ApplicationService.getApplicationDetails(
+        id, userId, role
       );
+
+      return ApiResponse.success(res, 'Application details retrieved', details);
     }
   );
 
-  //////////////////////////////////////////////////////
-  // UPDATE STATUS
-  //////////////////////////////////////////////////////
+  /* =====================================================
+     PATCH /api/v1/applications/:id/status
+     Update application status
+     Status transition validation is in ApplicationService
+  ===================================================== */
 
   static updateStatus = asyncHandler(
-    async (req: RequestWithUser, res: Response) => {
-
-      const { id } = req.params;
+    async (req: AuthenticatedRequest, res: Response) => {
+      const { id }     = req.params;
       const { status } = req.body;
-      const updaterId = req.user!.userId;
+      const updaterId  = req.user.userId;
+      const role       = req.user.role;
 
-      if (!Object.values(ApplicationStatus).includes(status)) {
-        throw new AppError('Invalid application status', 400);
-      }
-
-      const updated =
-        await ApplicationService.updateStatus(
-          id,
-          status as ApplicationStatus,
-          updaterId
-        );
-
-      logger.info(
-        `Application ${id} updated to ${status} by ${updaterId}`
+      const updated = await ApplicationService.updateStatus(
+        id, status as ApplicationStatus, updaterId, role
       );
+
+      logger.info({
+        event:         'APPLICATION_STATUS_UPDATED',
+        applicationId: id,
+        status,
+        updatedBy:     updaterId,
+        requestId:     req.requestId,
+      });
 
       return ApiResponse.success(
         res,
         `Application status updated to ${status}`,
         updated
       );
+    }
+  );
+
+  /* =====================================================
+     POST /api/v1/applications/:id/confirm
+     Customer confirms completion → triggers payout
+  ===================================================== */
+
+  static confirmCompletion = asyncHandler(
+    async (req: AuthenticatedRequest, res: Response) => {
+      const { id }   = req.params;
+      const userId   = req.user.userId;
+
+      const result = await ApplicationService.confirmCompletion(id, userId);
+
+      logger.info({
+        event:         'APPLICATION_COMPLETION_CONFIRMED',
+        applicationId: id,
+        customerId:    userId,
+        requestId:     req.requestId,
+      });
+
+      return ApiResponse.success(
+        res,
+        'Completion confirmed. Payment released to agent.',
+        result
+      );
+    }
+  );
+
+  /* =====================================================
+     POST /api/v1/applications/:id/cancel
+     Cancel application
+  ===================================================== */
+
+  static cancel = asyncHandler(
+    async (req: AuthenticatedRequest, res: Response) => {
+      const { id }   = req.params;
+      const userId   = req.user.userId;
+      const { reason } = req.body;
+
+      const result = await ApplicationService.cancelApplication(
+        id, userId, reason
+      );
+
+      logger.info({
+        event:         'APPLICATION_CANCELLED',
+        applicationId: id,
+        cancelledBy:   userId,
+        requestId:     req.requestId,
+      });
+
+      return ApiResponse.success(res, 'Application cancelled', result);
     }
   );
 }

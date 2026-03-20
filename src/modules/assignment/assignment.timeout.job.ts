@@ -55,7 +55,7 @@ export class AssignmentTimeoutJob {
               data: {
                 timeoutCount: { increment: 1 },
                 activeCases: { decrement: 1 },
-              },
+              },0
             });
 
             // 🔥 Recalculate priority after timeout

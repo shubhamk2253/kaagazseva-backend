@@ -1,142 +1,149 @@
 import { ApplicationStatus, ServiceMode } from '@prisma/client';
+import { PaginationMeta }                 from '../../core/types';
 
 /**
  * KAAGAZSEVA - Application Module Types
- * Founder-grade architecture
- * Draft → Payment → Escrow → Assignment
+ * Aligned to locked Prisma schema
  */
 
 /* =====================================================
-   1️⃣ DOCUMENT STRUCTURE (Stored as Prisma JSON)
+   DOCUMENT STRUCTURE
+   Stored in ApplicationDocument model
 ===================================================== */
 
-export interface ApplicationDocuments {
-  [documentName: string]: {
-    s3Key: string;
-    fileName: string;
-    uploadedAt: string; // ISO string
-  };
+export interface ApplicationDocumentInput {
+  name:      string;
+  fileUrl:   string;  // S3 key
+  fileSize?: number;
+  mimeType?: string;
 }
 
 /* =====================================================
-   2️⃣ CREATE DRAFT INPUT (PHASE 1 HARDENED)
-   - No manual district
-   - Pincode required
-   - StateId required
+   CREATE DRAFT INPUT
 ===================================================== */
 
 export interface CreateDraftInput {
-  serviceId: string;
-  stateId: string;
-  pincode: string;
-  mode: ServiceMode;
-
-  customerLat?: number;
-  customerLng?: number;
-
+  serviceId:        string;
+  stateId:          string;
+  districtId:       string;  // ← added, required
+  pincode:          string;
+  mode:             ServiceMode;
+  customerLat?:     number;
+  customerLng?:     number;
   deliveryAddress?: string;
-
-  documents?: ApplicationDocuments;
 }
 
 /* =====================================================
-   3️⃣ LEGACY CREATE INPUT (Kept for safety if needed)
-   ⚠️ Not recommended for frontend usage
-===================================================== */
-
-export interface CreateApplicationInput {
-  serviceType: string;
-
-  state: string;
-  district: string;
-
-  govtFee: number;
-  mode: ServiceMode;
-
-  customerLat?: number;
-  customerLng?: number;
-
-  deliveryAddress?: string;
-
-  documents: ApplicationDocuments;
-}
-
-/* =====================================================
-   4️⃣ STATUS UPDATE INPUT (Agent/Admin)
+   STATUS UPDATE INPUT
 ===================================================== */
 
 export interface UpdateApplicationStatusInput {
-  status: ApplicationStatus;
+  status:   ApplicationStatus;
   remarks?: string;
 }
 
 /* =====================================================
-   5️⃣ FILTERS (Dashboard / Pagination)
+   FILTERS — dashboard + pagination
 ===================================================== */
 
 export interface ApplicationFilters {
-  status?: ApplicationStatus;
-  serviceType?: string;
-  serviceId?: string;
+  status?:     ApplicationStatus;
+  serviceId?:  string;          // UUID FK
   customerId?: string;
-  agentId?: string;
-
-  page?: number;
-  limit?: number;
+  agentId?:    string;
+  page?:       number;
+  limit?:      number;
 }
 
 /* =====================================================
-   6️⃣ DATABASE RESPONSE MODEL
+   APPLICATION DETAIL RESPONSE
+   Matches ApplicationRepository detailInclude shape
 ===================================================== */
 
 export interface ApplicationDetail {
-  id: string;
+  id:              string;
+  referenceNumber: string;
+  status:          ApplicationStatus;
+  mode:            ServiceMode;
 
-  serviceType: string;
-  state: string;
-  district: string;
+  // Relations
+  customer?: { id: string; name: string | null; email: string | null };
+  agent?:    { id: string; name: string | null; email: string | null } | null;
+  service?:  { id: string; name: string; slug: string };
 
-  status: ApplicationStatus;
-
-  documents: ApplicationDocuments;
-
-  govtFee: number;
-  serviceFee: number;
+  // Pricing (immutable after payment)
+  govtFee:            number;
+  serviceFee:         number;
   platformCommission: number;
-  agentCommission: number;
-  deliveryFee: number;
-  totalAmount: number;
+  agentCommission:    number;
+  deliveryFee:        number;
+  totalAmount:        number;
+  distanceKm?:        number | null;
+  pricingSnapshot?:   object | null;
 
-  distanceKm?: number | null;
+  // Payment
+  paymentStatus:    string;
+  paidAt?:          Date | null;
+  razorpayOrderId?: string | null;
 
-  paymentStatus: string;
-  paidAt?: Date | null;
+  // Location (snapshot)
+  customerLat?:     number | null;
+  customerLng?:     number | null;
+  customerPincode?: string | null;
+  deliveryAddress?: string | null;
 
-  customerId: string;
-  agentId?: string | null;
+  // Assignment
+  assignmentDeadline?:     Date | null;
+  assignedAt?:             Date | null;
+  acceptedAt?:             Date | null;
+  assignmentAttemptCount:  number;
 
-  assignmentDeadline?: Date | null;
-  assignedAt?: Date | null;
-  acceptedAt?: Date | null;
+  // Completion
+  completedAt?:        Date | null;
+  confirmedAt?:        Date | null;
+  closedAt?:           Date | null;
+  completionProofUrl?: string | null;
+  govtAckReceiptUrl?:  string | null;
 
-  completedAt?: Date | null;
-  autoReleaseAt?: Date | null;
-
-  riskScore: number;
-  manualReview: boolean;
+  // Risk
+  riskScore:      number;
+  manualReview:   boolean;
+  escalationLevel: number;
   refundRequested: boolean;
+
+  // Ratings
+  customerRating?: number | null;
+  agentRating?:    number | null;
 
   createdAt: Date;
   updatedAt: Date;
 }
 
 /* =====================================================
-   7️⃣ PAGINATED RESPONSE
+   PAGINATED RESPONSE
+   Matches ApplicationRepository.findAll() output
 ===================================================== */
 
 export interface PaginatedApplicationResponse {
-  applications: ApplicationDetail[];
-  total: number;
-  totalPages: number;
-  currentPage: number;
+  items: ApplicationDetail[];
+  meta:  PaginationMeta;
+}
+
+/* =====================================================
+   PRICING SNAPSHOT STRUCTURE
+   Stored in Application.pricingSnapshot JSON field
+===================================================== */
+
+export interface PricingSnapshot {
+  govtFee:            number;
+  multiplier:         number;
+  serviceFee:         number;
+  platformCommission: number;
+  agentCommission:    number;
+  deliveryFee:        number;
+  distanceKm:         number;
+  totalAmount:        number;
+  pincode:            string;
+  ruleId:             string;
+  lockedAt:           string; // ISO date
 }
