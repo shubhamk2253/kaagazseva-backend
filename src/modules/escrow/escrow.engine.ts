@@ -1,82 +1,75 @@
-import { prisma } from '../../config/database';
+import { prisma }  from '../../config/database';
 import {
   ApplicationStatus,
   TransactionStatus,
   TransactionType,
   AuditAction,
-} from '@prisma/client';
-import logger from '../../core/logger';
+}                  from '@prisma/client';
+import { ESCROW }  from '../../core/constants';
+import { QueueService } from '../../workers/queue.service';
+import logger      from '../../core/logger';
 
 /**
  * KAAGAZSEVA - Escrow Auto Release Engine
  *
- * Rule:
- * COMPLETED → 24hr hold → Auto Release
- * If refund exists → DO NOT release
- * If wallet frozen → DO NOT release
+ * Triggers on: CONFIRMED status OR 72hr after COMPLETED
+ * Blocks on:   active refund request, frozen wallet
  */
 
 export class EscrowEngine {
 
-  //////////////////////////////////////////////////////
-  // AUTO RELEASE PROCESS
-  //////////////////////////////////////////////////////
+  static async processAutoRelease(): Promise<void> {
 
-  static async processAutoRelease() {
+    const holdMs  = ESCROW.AUTO_RELEASE_HOURS * 60 * 60 * 1000;
+    const cutoff  = new Date(Date.now() - holdMs);
 
-    logger.info('🔄 Escrow Auto-Release Engine Started');
-
-    //////////////////////////////////////////////////////
-    // 1️⃣ Find Completed Applications
-    //////////////////////////////////////////////////////
-
+    // Find CONFIRMED apps OR COMPLETED apps past hold period
     const applications = await prisma.application.findMany({
       where: {
-        status: ApplicationStatus.COMPLETED,
-        completedAt: {
-          not: null,
-        },
-        escrow: {
-          is: {
-            isReleased: false,
+        OR: [
+          // Customer confirmed → release immediately
+          { status: ApplicationStatus.CONFIRMED },
+          // No response after hold period → auto release
+          {
+            status:      ApplicationStatus.COMPLETED,
+            completedAt: { lt: cutoff },
           },
+        ],
+        escrow: {
+          is: { isReleased: false },
         },
       },
       include: {
-        escrow: true,
-        refundRequests: true,
+        escrow:         true,
+        refundRequests: {
+          where: { status: { notIn: ['REJECTED', 'PROCESSED'] } },
+        },
       },
     });
 
     if (!applications.length) {
-      logger.info('✅ No escrows pending release');
+      logger.info({ event: 'ESCROW_NONE_PENDING' });
       return;
     }
 
-    const now = Date.now();
+    logger.info({
+      event: 'ESCROW_PROCESSING',
+      count: applications.length,
+    });
 
-    //////////////////////////////////////////////////////
-    // 2️⃣ Process Each Application
-    //////////////////////////////////////////////////////
+    let released = 0;
+    let skipped  = 0;
 
     for (const application of applications) {
-
       try {
 
-        if (!application.completedAt) continue;
-
-        const completedTime = new Date(application.completedAt).getTime();
-
-        const holdPeriod = 24 * 60 * 60 * 1000;
-
-        if (now - completedTime < holdPeriod) {
-          continue;
-        }
-
+        // Active refund request — block release
         if (application.refundRequests.length > 0) {
-          logger.warn(
-            `🚫 Escrow blocked due to refund request → ${application.id}`
-          );
+          logger.warn({
+            event:         'ESCROW_BLOCKED_REFUND',
+            applicationId: application.id,
+          });
+          skipped++;
           continue;
         }
 
@@ -86,106 +79,143 @@ export class EscrowEngine {
             where: { applicationId: application.id },
           });
 
-          if (!escrow) return;
-          if (escrow.isReleased) return;
+          if (!escrow || escrow.isReleased) return;
 
           if (!escrow.agentId) {
-            logger.warn(
-              `Escrow ${escrow.id} has no agent assigned`
-            );
+            logger.warn({
+              event:   'ESCROW_NO_AGENT',
+              escrowId: escrow.id,
+            });
             return;
           }
 
-          //////////////////////////////////////////////////////
-          // Fetch Agent Wallet
-          //////////////////////////////////////////////////////
-
+          // Check agent wallet
           const wallet = await tx.wallet.findUnique({
             where: { userId: escrow.agentId },
           });
 
           if (!wallet) {
-            logger.error(
-              `Wallet missing for agent ${escrow.agentId}`
-            );
+            logger.error({
+              event:   'ESCROW_NO_WALLET',
+              agentId: escrow.agentId,
+            });
             return;
           }
 
           if (wallet.isFrozen) {
-
-            logger.warn(
-              `🚫 Escrow blocked → frozen wallet → agent ${escrow.agentId}`
-            );
+            logger.warn({
+              event:         'ESCROW_BLOCKED_FROZEN_WALLET',
+              agentId:       escrow.agentId,
+              applicationId: application.id,
+            });
 
             await tx.auditLog.create({
               data: {
-                userId: escrow.agentId,
-                action: AuditAction.UPDATE,
-                resourceType: 'ESCROW_BLOCKED_FROZEN_WALLET',
-                resourceId: application.id,
+                userId:       escrow.agentId,
+                action:       AuditAction.PAYMENT,       // ✅
+                resourceType: 'EscrowHolding',           // ✅
+                resourceId:   escrow.id,
+                newData:      { reason: 'wallet_frozen' },
+                success:      false,
               },
             });
-
             return;
           }
 
-          //////////////////////////////////////////////////////
-          // Credit Wallet
-          //////////////////////////////////////////////////////
-
+          // 1. Credit agent wallet
           await tx.wallet.update({
             where: { userId: escrow.agentId },
-            data: {
-              balance: {
-                increment: escrow.agentAmount,
-              },
-            },
+            data:  { balance: { increment: escrow.agentAmount } },
           });
 
-          //////////////////////////////////////////////////////
-          // Mark Escrow Released
-          //////////////////////////////////////////////////////
-
+          // 2. Mark escrow released
           await tx.escrowHolding.update({
-            where: {
-              id: escrow.id,
-              isReleased: false,
-            },
-            data: {
-              isReleased: true,
-              releasedAt: new Date(),
-            },
+            where: { id: escrow.id, isReleased: false },
+            data:  { isReleased: true, releasedAt: new Date() },
           });
 
-          //////////////////////////////////////////////////////
-          // Ledger Entry
-          //////////////////////////////////////////////////////
-
+          // 3. Ledger entry
           await tx.transaction.create({
             data: {
-              userId: escrow.agentId,
-              amount: escrow.agentAmount,
-              type: TransactionType.ESCROW_RELEASE,
-              status: TransactionStatus.SUCCESS,
+              userId:      escrow.agentId,
+              walletId:    wallet.id,              // ✅ added
+              amount:      escrow.agentAmount,
+              type:        TransactionType.ESCROW_RELEASE,
+              status:      TransactionStatus.SUCCESS,
               referenceId: application.id,
             },
           });
 
+          // 4. Update agent metrics
+          await tx.agentMetrics.update({
+            where: { agentId: escrow.agentId },
+            data: {
+              totalEarnings:  { increment: escrow.agentAmount },
+              pendingPayout:  { decrement: escrow.agentAmount },
+              activeCases:    { decrement: 1 },
+              completedCases: { increment: 1 },
+            },
+          });
+
+          // 5. Close application
+          await tx.application.update({
+            where: { id: application.id },
+            data: {
+              status:   ApplicationStatus.CLOSED,  // ✅
+              closedAt: new Date(),
+            },
+          });
+
+          // 6. Audit log
+          await tx.auditLog.create({
+            data: {
+              userId:       escrow.agentId,
+              action:       AuditAction.PAYOUT,
+              resourceType: 'EscrowHolding',
+              resourceId:   escrow.id,
+              newData: {
+                agentAmount:   Number(escrow.agentAmount),
+                applicationId: application.id,
+                releasedAt:    new Date().toISOString(),
+              },
+              success: true,
+            },
+          });
         });
 
-        logger.info(
-          `✅ Escrow released → Application ${application.id}`
-        );
+        // Notify agent of payment
+        await QueueService.addNotificationJob({
+          userId:  application.escrow!.agentId!,
+          type:    'PUSH',
+          title:   'Payment Released',
+          message: `₹${Number(application.escrow!.agentAmount)} has been credited to your wallet`,
+          data:    { type: 'PAYMENT_RELEASED', applicationId: application.id },
+        });
 
-      } catch (error) {
+        logger.info({
+          event:         'ESCROW_RELEASED',
+          applicationId: application.id,
+          agentId:       application.escrow?.agentId,
+          amount:        Number(application.escrow?.agentAmount),
+        });
 
-        logger.error(
-          `❌ Escrow release failed → Application ${application.id}`,
-          error
-        );
+        released++;
+
+      } catch (error: any) {
+        logger.error({
+          event:         'ESCROW_RELEASE_FAILED',
+          applicationId: application.id,
+          error:         error.message,
+        });
+        skipped++;
       }
     }
 
-    logger.info('🏁 Escrow Auto-Release Engine Finished');
+    logger.info({
+      event:    'ESCROW_COMPLETE',
+      released,
+      skipped,
+      total:    applications.length,
+    });
   }
 }

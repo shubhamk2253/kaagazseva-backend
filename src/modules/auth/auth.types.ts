@@ -1,51 +1,80 @@
-import { UserRole } from '@prisma/client';
+import { UserRole }  from '@prisma/client';
+import { TokenPair } from '../../core/types';
 
 /**
  * KAAGAZSEVA - Auth Module Types
- * Firebase based authentication
+ * Email + Password authentication
  */
 
-//////////////////////////////////////////////////////
-// AUTH USER
-//////////////////////////////////////////////////////
+/* =====================================================
+   AUTH USER — returned in all auth responses
+===================================================== */
 
 export interface AuthUser {
-  id: string;
-  phoneNumber: string;
-  role: UserRole;
-  name?: string | null;
+  id:            string;
+  name:          string | null;
+  email:         string;
+  role:          UserRole;
+  phoneNumber?:  string | null;
+  walletBalance: number;
+  isActive:      boolean;
 }
 
-//////////////////////////////////////////////////////
-// AUTH TOKENS
-//////////////////////////////////////////////////////
-
-export interface AuthTokens {
-  accessToken: string;
-  refreshToken: string;
-}
-
-//////////////////////////////////////////////////////
-// AUTH RESPONSE
-//////////////////////////////////////////////////////
+/* =====================================================
+   AUTH RESPONSE — login + register
+===================================================== */
 
 export interface AuthResponse {
-  user: AuthUser;
-  tokens: AuthTokens;
+  user:   AuthUser;
+  tokens: TokenPair; // accessToken + refreshToken + expiresIn
 }
 
-//////////////////////////////////////////////////////
-// FIREBASE LOGIN INPUT
-//////////////////////////////////////////////////////
+/* =====================================================
+   REGISTER INPUT
+===================================================== */
 
-export interface FirebaseLoginInput {
-  phoneNumber: string;
+export interface RegisterInput {
+  name?:        string;
+  email:        string;
+  password:     string;
+  phoneNumber?: string;
 }
 
-//////////////////////////////////////////////////////
-// REFRESH TOKEN INPUT
-//////////////////////////////////////////////////////
+/* =====================================================
+   LOGIN INPUT
+===================================================== */
+
+export interface LoginInput {
+  email:    string;
+  password: string;
+}
+
+/* =====================================================
+   REFRESH TOKEN INPUT
+===================================================== */
 
 export interface RefreshTokenInput {
-  refreshToken: string;
+  refreshToken?: string; // optional — may come from cookie
+}
+
+/* =====================================================
+   CHANGE PASSWORD INPUT
+===================================================== */
+
+export interface ChangePasswordInput {
+  currentPassword: string;
+  newPassword:     string;
+  confirmPassword: string;
+}
+
+/* =====================================================
+   TOKEN SESSION — for audit logging
+===================================================== */
+
+export interface TokenSession {
+  userId:    string;
+  email:     string;
+  role:      UserRole;
+  ip?:       string;
+  userAgent?: string;
 }

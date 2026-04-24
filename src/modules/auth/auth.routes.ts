@@ -1,61 +1,69 @@
-import { Router } from 'express';
-import { AuthController } from './auth.controller';
-import { authSchema } from './auth.schema';
-import { validate } from '../../middleware/validate.middleware';
-import { apiLimiter } from '../../middleware/rateLimit.middleware';
+import { Router }           from 'express';
+import { AuthController }   from './auth.controller';
+import { authSchema }       from './auth.schema';
+import { validate }         from '../../middleware/validate.middleware';
+import { authLimiter }      from '../../middleware/rateLimit.middleware';
+import { requireAuth }      from '../../middleware/auth.middleware';
 
 /**
  * KAAGAZSEVA - Auth Routes
- * Firebase Authentication
+ * Email + Password authentication
+ * Base: /api/v1/auth
  */
 
 const router = Router();
 
-//////////////////////////////////////////////////////
-// FIREBASE LOGIN
-//////////////////////////////////////////////////////
+/* =====================================================
+   PUBLIC ROUTES
+===================================================== */
 
-/**
- * @route   POST /api/v1/auth/firebase-login
- * @desc    Login using Firebase verified phone
- * @access  Public
- */
-
+// POST /api/v1/auth/register
 router.post(
-  '/firebase-login',
-  apiLimiter,
-  validate(authSchema.firebaseLogin),
-  AuthController.firebaseLogin
+  '/register',
+  authLimiter,
+  validate(authSchema.register),
+  AuthController.register
 );
 
-//////////////////////////////////////////////////////
-// REFRESH TOKEN
-//////////////////////////////////////////////////////
+// POST /api/v1/auth/login
+router.post(
+  '/login',
+  authLimiter,
+  validate(authSchema.login),
+  AuthController.login
+);
 
-/**
- * @route   POST /api/v1/auth/refresh
- * @desc    Refresh Access Token
- */
-
+// POST /api/v1/auth/refresh
 router.post(
   '/refresh',
-  apiLimiter,
   validate(authSchema.refreshToken),
   AuthController.refreshToken
 );
 
-//////////////////////////////////////////////////////
-// LOGOUT
-//////////////////////////////////////////////////////
+/* =====================================================
+   PROTECTED ROUTES — requireAuth
+===================================================== */
 
-/**
- * @route   POST /api/v1/auth/logout
- */
-
+// POST /api/v1/auth/logout
 router.post(
   '/logout',
-  apiLimiter,
+  requireAuth,
   AuthController.logout
+);
+
+// GET /api/v1/auth/me
+router.get(
+  '/me',
+  requireAuth,
+  AuthController.me
+);
+
+// POST /api/v1/auth/change-password
+router.post(
+  '/change-password',
+  requireAuth,
+  validate(authSchema.changePassword),
+  AuthController.changePassword
 );
 
 export default router;

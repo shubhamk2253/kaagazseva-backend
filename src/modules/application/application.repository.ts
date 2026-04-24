@@ -11,7 +11,7 @@ import { buildPaginationMeta } from '../../core/types';
 // Status → ApplicationTimeline field mapping
 const STATUS_TO_TIMELINE_FIELD: Partial<Record<ApplicationStatus, string>> = {
   [ApplicationStatus.PAID]:            'paidAt',
-  [ApplicationStatus.ASSIGNING]:       'assigningAt',
+  [Applicatsrc/modules/application/application.repository.ts src/modules/application/application.routes.ts src/modules/application/application.schema.ts src/modules/application/application.service.ts src/modules/application/application.types.tsionStatus.ASSIGNING]:       'assigningAt',
   [ApplicationStatus.ASSIGNED]:        'assignedAt',
   [ApplicationStatus.ACCEPTED]:        'acceptedAt',
   [ApplicationStatus.IN_PROGRESS]:     'inProgressAt',

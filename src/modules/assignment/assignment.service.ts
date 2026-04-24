@@ -1,17 +1,29 @@
-import { prisma } from '../../config/database';
-import { ApplicationStatus } from '@prisma/client';
-import { AppError } from '../../core/AppError';
-import { AgentPriorityEngine } from './agent.priority.engine';
-import { AssignmentEngine } from './assignment.engine';
+import { prisma }               from '../../config/database';
+import {
+  ApplicationStatus,
+  AssignmentStatus,
+  AuditAction,
+}                               from '@prisma/client';
+import { AppError, ErrorCodes } from '../../core/AppError';
+import { AgentPriorityEngine }  from './agent.priority.engine';
+import { AssignmentEngine }     from './assignment.engine';
+import logger                   from '../../core/logger';
+
+/**
+ * KAAGAZSEVA - Assignment Service
+ * Handles agent accept/reject of assigned applications
+ */
 
 export class AssignmentService {
 
-  //////////////////////////////////////////////////////
-  // 1️⃣ ACCEPT ASSIGNMENT
-  //////////////////////////////////////////////////////
+  /* =====================================================
+     ACCEPT ASSIGNMENT
+  ===================================================== */
 
-  static async accept(applicationId: string, agentId: string) {
-
+  static async accept(
+    applicationId: string,
+    agentId:       string
+  ) {
     await prisma.$transaction(async (tx) => {
 
       const application = await tx.application.findUnique({
@@ -19,46 +31,95 @@ export class AssignmentService {
       });
 
       if (!application) {
-        throw new AppError('Application not found', 404);
+        throw AppError.notFound(
+          'Application not found',
+          ErrorCodes.APPLICATION_NOT_FOUND
+        );
       }
-
       if (application.agentId !== agentId) {
-        throw new AppError('Unauthorized assignment', 403);
+        throw AppError.forbidden(
+          'This application is not assigned to you',
+          ErrorCodes.FORBIDDEN
+        );
       }
-
       if (application.status !== ApplicationStatus.ASSIGNED) {
-        throw new AppError('Application not in assignable state', 400);
+        throw new AppError(
+          'Application is not awaiting acceptance',
+          400, true, ErrorCodes.INVALID_STATUS_CHANGE
+        );
       }
-
       if (
         application.assignmentDeadline &&
         application.assignmentDeadline < new Date()
       ) {
-        throw new AppError('Assignment expired', 400);
+        throw new AppError(
+          'Assignment acceptance window has expired',
+          400, true, ErrorCodes.INVALID_STATUS_CHANGE
+        );
       }
 
+      // Update application status
       await tx.application.update({
         where: { id: applicationId },
         data: {
-          status: ApplicationStatus.UNDER_REVIEW,
-          acceptedAt: new Date(),
+          status:             ApplicationStatus.ACCEPTED, // ✅
+          acceptedAt:         new Date(),
           assignmentDeadline: null,
+          // Update timeline milestone
+          timeline: {
+            update: { acceptedAt: new Date() },
+          },
         },
       });
 
+      // Update assignment history record
+      await tx.applicationAssignment.updateMany({
+        where: {
+          applicationId,
+          agentId,
+          status: AssignmentStatus.PENDING,
+        },
+        data: {
+          status:      AssignmentStatus.ACCEPTED,
+          respondedAt: new Date(),
+        },
+      });
+
+      // Audit log
+      await tx.auditLog.create({
+        data: {
+          userId:       agentId,
+          action:       AuditAction.STATUS_CHANGE,
+          resourceType: 'Application',
+          resourceId:   applicationId,
+          oldData:      { status: ApplicationStatus.ASSIGNED },
+          newData:      { status: ApplicationStatus.ACCEPTED },
+          success:      true,
+        },
+      });
     });
 
+    // Recalculate agent priority score
     await AgentPriorityEngine.recalculate(agentId);
+
+    logger.info({
+      event:         'ASSIGNMENT_ACCEPTED',
+      applicationId,
+      agentId,
+    });
 
     return { message: 'Assignment accepted successfully' };
   }
 
-  //////////////////////////////////////////////////////
-  // 2️⃣ REJECT ASSIGNMENT (Immediate Reassign)
-  //////////////////////////////////////////////////////
+  /* =====================================================
+     REJECT ASSIGNMENT
+  ===================================================== */
 
-  static async reject(applicationId: string, agentId: string) {
-
+  static async reject(
+    applicationId: string,
+    agentId:       string,
+    reason?:       string
+  ) {
     await prisma.$transaction(async (tx) => {
 
       const application = await tx.application.findUnique({
@@ -66,49 +127,93 @@ export class AssignmentService {
       });
 
       if (!application) {
-        throw new AppError('Application not found', 404);
+        throw AppError.notFound(
+          'Application not found',
+          ErrorCodes.APPLICATION_NOT_FOUND
+        );
       }
-
       if (application.agentId !== agentId) {
-        throw new AppError('Unauthorized rejection', 403);
+        throw AppError.forbidden(
+          'This application is not assigned to you',
+          ErrorCodes.FORBIDDEN
+        );
       }
-
       if (application.status !== ApplicationStatus.ASSIGNED) {
-        throw new AppError('Application not in assignable state', 400);
+        throw new AppError(
+          'Application is not awaiting acceptance',
+          400, true, ErrorCodes.INVALID_STATUS_CHANGE
+        );
       }
 
-      // 1️⃣ Penalize Agent
+      // 1. Update assignment history → REJECTED
+      await tx.applicationAssignment.updateMany({
+        where: {
+          applicationId,
+          agentId,
+          status: AssignmentStatus.PENDING,
+        },
+        data: {
+          status:         AssignmentStatus.REJECTED,
+          respondedAt:    new Date(),
+          responseReason: reason,
+        },
+      });
+
+      // 2. Penalise agent
       await tx.agentMetrics.update({
         where: { agentId },
         data: {
           rejectionCount: { increment: 1 },
-          activeCases: { decrement: 1 },
+          activeCases:    { decrement: 1 },
         },
       });
 
-      // 2️⃣ Reset Application
+      // 3. Reset application for reassignment
       await tx.application.update({
         where: { id: applicationId },
         data: {
-          agentId: null,
-          status: ApplicationStatus.SUBMITTED,
+          agentId:            null,
+          status:             ApplicationStatus.ASSIGNING, // ✅
           assignmentDeadline: null,
-          acceptedAt: null,
+          acceptedAt:         null,
         },
       });
 
+      // 4. Audit log
+      await tx.auditLog.create({
+        data: {
+          userId:       agentId,
+          action:       AuditAction.STATUS_CHANGE,
+          resourceType: 'Application',
+          resourceId:   applicationId,
+          oldData:      { status: ApplicationStatus.ASSIGNED, agentId },
+          newData:      { status: ApplicationStatus.ASSIGNING, reason },
+          success:      true,
+        },
+      });
     });
 
-    // 🔁 Recalculate priority
+    // Recalculate priority after penalty
     await AgentPriorityEngine.recalculate(agentId);
 
-    // 🚀 Immediate Reassignment
+    // Immediate reassignment
     try {
       await AssignmentEngine.autoAssign(applicationId);
-    } catch (err) {
-      // If no agent available → manualReview handled inside engine
+    } catch (err: any) {
+      logger.error({
+        event:         'REASSIGNMENT_FAILED',
+        applicationId,
+        error:         err.message,
+      });
     }
 
-    return { message: 'Rejected and reassigned immediately' };
+    logger.info({
+      event:         'ASSIGNMENT_REJECTED',
+      applicationId,
+      agentId,
+      reason,
+    });
+
+    return { message: 'Assignment rejected. Finding next available agent.' };
   }
 }

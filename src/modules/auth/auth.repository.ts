@@ -1,39 +1,59 @@
-import { prisma } from '../../config/database';
+import { prisma }   from '../../config/database';
 import { UserRole } from '@prisma/client';
 
 /**
  * KAAGAZSEVA - Auth Repository
+ * Email + Password authentication
  */
 
 export class AuthRepository {
 
-  /**
-   * Find user by phone number
-   */
-  static async findByPhone(phoneNumber: string) {
+  /* =====================================================
+     FIND BY EMAIL — primary identifier
+  ===================================================== */
+
+  static async findByEmail(email: string) {
     return prisma.user.findUnique({
-      where: { phoneNumber },
+      where:   { email },
       include: { wallet: true },
     });
   }
 
-  /**
-   * Create a new user with wallet atomically
-   */
-  static async createWithWallet(
-    phoneNumber: string,
-    role: UserRole = UserRole.CUSTOMER
-  ) {
+  /* =====================================================
+     FIND BY ID
+  ===================================================== */
 
+  static async findById(id: string) {
+    return prisma.user.findUnique({
+      where:   { id },
+      include: { wallet: true },
+    });
+  }
+
+  /* =====================================================
+     CREATE USER + WALLET — atomic transaction
+     Called on registration
+  ===================================================== */
+
+  static async createWithWallet(data: {
+    name?:        string;
+    email:        string;
+    password:     string; // pre-hashed with bcrypt
+    phoneNumber?: string;
+    role?:        UserRole;
+  }) {
     return prisma.$transaction(async (tx) => {
 
       const user = await tx.user.create({
         data: {
-          phoneNumber,
-          role,
+          name:        data.name,
+          email:       data.email,
+          password:    data.password,  // bcrypt hash
+          phoneNumber: data.phoneNumber,
+          role:        data.role ?? UserRole.CUSTOMER,
           wallet: {
             create: {
-              balance: '0', // safer for Decimal
+              balance: 0,  // Decimal field — number not string
             },
           },
         },
@@ -44,13 +64,29 @@ export class AuthRepository {
     });
   }
 
-  /**
-   * Update profile
-   */
+  /* =====================================================
+     UPDATE PASSWORD — called on change password
+  ===================================================== */
+
+  static async updatePassword(
+    userId:          string,
+    hashedPassword:  string
+  ) {
+    return prisma.user.update({
+      where: { id: userId },
+      data:  { password: hashedPassword },
+    });
+  }
+
+  /* =====================================================
+     UPDATE PROFILE
+  ===================================================== */
+
   static async updateProfile(
     userId: string,
     data: {
-      name?: string;
+      name?:        string;
+      phoneNumber?: string;
     }
   ) {
     return prisma.user.update({
@@ -59,23 +95,25 @@ export class AuthRepository {
     });
   }
 
-  /**
-   * Find user by ID
-   */
-  static async findById(id: string) {
-    return prisma.user.findUnique({
-      where: { id },
-      include: { wallet: true },
-    });
-  }
+  /* =====================================================
+     DEACTIVATE USER
+  ===================================================== */
 
-  /**
-   * Soft disable user
-   */
   static async deactivateUser(userId: string) {
     return prisma.user.update({
       where: { id: userId },
-      data: { isActive: false },
+      data:  { isActive: false },
     });
+  }
+
+  /* =====================================================
+     CHECK EMAIL EXISTS — for registration validation
+  ===================================================== */
+
+  static async emailExists(email: string): Promise<boolean> {
+    const count = await prisma.user.count({
+      where: { email },
+    });
+    return count > 0;
   }
 }
